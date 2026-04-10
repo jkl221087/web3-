@@ -12,6 +12,14 @@
   "author": "",
   "license": "ISC",
   "description": "Escrow fashion store DApp prototype with storefront, buyer center, seller center, and local JSON API.",
+  "homepage": "https://github.com/jkl221087/web3-",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jkl221087/web3-.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jkl221087/web3-/issues"
+  },
   "dependencies": {
     "@remix-project/remixd": "^0.6.62",
     "dotenv": "^17.4.1",
