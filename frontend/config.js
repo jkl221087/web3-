@@ -1,0 +1,4 @@
+window.APP_CONFIG = {
+  DEFAULT_CONTRACT_ADDRESS: "",
+  EXPECTED_CHAIN_ID: "0xaa36a7",
+};

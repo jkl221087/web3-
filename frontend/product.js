@@ -1,0 +1,204 @@
+const core = window.FashionStoreCore;
+
+const dom = {
+    connectButton: document.getElementById("connectButton"),
+    detailImage: document.getElementById("detailImage"),
+    detailTags: document.getElementById("detailTags"),
+    detailName: document.getElementById("detailName"),
+    detailDescription: document.getElementById("detailDescription"),
+    detailPrice: document.getElementById("detailPrice"),
+    detailProductId: document.getElementById("detailProductId"),
+    detailSeller: document.getElementById("detailSeller"),
+    detailWallet: document.getElementById("detailWallet"),
+    detailSellerReviewSummary: document.getElementById("detailSellerReviewSummary"),
+    detailSellerReviewList: document.getElementById("detailSellerReviewList"),
+    detailAddCartButton: document.getElementById("detailAddCartButton"),
+    detailFavoriteButton: document.getElementById("detailFavoriteButton"),
+    relatedGrid: document.getElementById("relatedGrid"),
+    toastStack: document.getElementById("toastStack")
+};
+
+const state = {
+    account: null,
+    products: [],
+    currentProduct: null,
+    reviews: []
+};
+
+function toast(type, message) {
+    const node = document.createElement("article");
+    node.className = `toast ${type}`;
+    node.textContent = message;
+    dom.toastStack.prepend(node);
+    window.setTimeout(() => node.remove(), 3200);
+}
+
+function normalizeError(error) {
+    const raw = error?.reason || error?.shortMessage || error?.message || "發生未知錯誤";
+    return raw.replace(/^execution reverted: /, "");
+}
+
+function getProductIdFromUrl() {
+    const url = new URL(window.location.href);
+    return Number(url.searchParams.get("id"));
+}
+
+function renderCurrentProduct() {
+    if (!state.currentProduct) {
+        dom.detailName.textContent = "找不到這件商品";
+        dom.detailDescription.textContent = "請回到商店首頁重新選擇商品。";
+        dom.detailAddCartButton.disabled = true;
+        dom.detailSellerReviewSummary.innerHTML = "";
+        dom.detailSellerReviewList.innerHTML = "";
+        return;
+    }
+
+    const product = state.currentProduct;
+    dom.detailImage.src = product.image;
+    dom.detailName.textContent = product.name;
+    dom.detailDescription.textContent = product.meta.description || `${product.meta.department} / ${product.meta.season} / ${product.meta.style}`;
+    dom.detailPrice.textContent = core.formatEth(product.priceWei);
+    dom.detailProductId.textContent = `#${product.productId}`;
+    dom.detailSeller.textContent = core.formatAddress(product.seller);
+    dom.detailWallet.textContent = state.account ? core.formatAddress(state.account) : "尚未連接";
+    dom.detailFavoriteButton.textContent = core.isFavoriteProduct(product.productId) ? "移除收藏" : "加入收藏";
+    dom.detailTags.innerHTML = `
+        <span class="tag-pill">${product.meta.mainCategory}</span>
+        <span class="tag-pill">${product.meta.department}</span>
+        <span class="tag-pill">${product.meta.season}</span>
+        <span class="tag-pill">${product.meta.style}</span>
+    `;
+
+    renderSellerReputation();
+}
+
+function renderRelatedProducts() {
+    dom.relatedGrid.innerHTML = "";
+
+    if (!state.currentProduct) {
+        return;
+    }
+
+    const related = state.products
+        .filter((product) => product.productId !== state.currentProduct.productId && product.meta.department === state.currentProduct.meta.department)
+        .slice(0, 3);
+
+    if (!related.length) {
+        dom.relatedGrid.innerHTML = '<article class="panel-card"><strong>目前沒有相近分類商品</strong><p>回到商店首頁看看其他季節或其他對象分類的單品。</p></article>';
+        return;
+    }
+
+    related.forEach((product) => {
+        const card = document.createElement("article");
+        card.className = "product-card";
+        card.innerHTML = `
+            <a href="/frontend/product.html?id=${product.productId}">
+                <img src="${product.image}" alt="${product.name}" />
+            </a>
+            <div class="detail-tags">
+                <span class="tag-pill">${product.meta.department}</span>
+                <span class="tag-pill">${product.meta.season}</span>
+            </div>
+            <h3>${product.name}</h3>
+            <div class="price-row">
+                <strong>${core.formatEth(product.priceWei)}</strong>
+                <a href="/frontend/product.html?id=${product.productId}" class="button ghost link-button">查看</a>
+            </div>
+        `;
+        dom.relatedGrid.append(card);
+    });
+}
+
+function renderSellerReputation() {
+    if (!state.currentProduct) return;
+
+    const sellerReviews = state.reviews.filter((review) => String(review.seller).toLowerCase() === state.currentProduct.seller.toLowerCase());
+    if (!sellerReviews.length) {
+        dom.detailSellerReviewSummary.innerHTML = `
+            <span class="summary-pill"><strong>0</strong> 筆評論</span>
+            <span class="summary-pill"><strong>-</strong> 平均評分</span>
+        `;
+        dom.detailSellerReviewList.innerHTML = '<article class="review-card"><h3>目前還沒有評價</h3><p>這位賣家尚未收到買家的公開評論。</p></article>';
+        return;
+    }
+
+    const average = sellerReviews.reduce((sum, review) => sum + Number(review.rating || 0), 0) / sellerReviews.length;
+    dom.detailSellerReviewSummary.innerHTML = `
+        <span class="summary-pill"><strong>${sellerReviews.length}</strong> 筆評論</span>
+        <span class="summary-pill"><strong>${average.toFixed(1)}</strong> 平均評分</span>
+        <span class="summary-pill"><strong>${"★".repeat(Math.round(average))}</strong> 口碑星等</span>
+    `;
+
+    dom.detailSellerReviewList.innerHTML = "";
+    sellerReviews.slice(0, 3).forEach((review) => {
+        const card = document.createElement("article");
+        card.className = "review-card";
+        card.innerHTML = `
+            <div class="review-meta">
+                <strong class="review-stars">${"★".repeat(review.rating)}${"☆".repeat(5 - review.rating)}</strong>
+                <span>訂單 #${review.orderId}</span>
+            </div>
+            <h3>${review.productName || `商品 #${review.productId || review.orderId}`}</h3>
+            <p>${review.comment || "買家只留下星等評分。"}</p>
+        `;
+        dom.detailSellerReviewList.append(card);
+    });
+}
+
+function addCurrentProductToCart() {
+    if (!state.currentProduct) return;
+    if (!state.currentProduct.isActive) {
+        toast("error", "這件商品目前已下架，不能加入購物車。");
+        return;
+    }
+
+    const cart = core.getCart();
+    const existing = cart.find((item) => item.productId === state.currentProduct.productId);
+    if (existing) {
+        existing.quantity += 1;
+    } else {
+        cart.push({ productId: state.currentProduct.productId, quantity: 1 });
+    }
+
+    core.saveCart(cart);
+    toast("success", "商品已加入購物車");
+}
+
+function toggleCurrentProductFavorite() {
+    if (!state.currentProduct) return;
+    const next = core.toggleFavoriteProduct(state.currentProduct.productId);
+    dom.detailFavoriteButton.textContent = next.includes(state.currentProduct.productId) ? "移除收藏" : "加入收藏";
+    toast("success", next.includes(state.currentProduct.productId) ? "已加入收藏" : "已移除收藏");
+}
+
+async function hydrate() {
+    const session = await core.initWalletState();
+    state.account = session.account;
+    dom.detailWallet.textContent = state.account ? core.formatAddress(state.account) : "尚未連接";
+
+    state.products = await core.fetchProducts();
+    state.reviews = await core.fetchReviews();
+    state.currentProduct = state.products.find((product) => product.productId === getProductIdFromUrl()) || null;
+    if (state.currentProduct) {
+        core.pushRecentlyViewedProduct(state.currentProduct.productId);
+    }
+
+    renderCurrentProduct();
+    renderRelatedProducts();
+}
+
+dom.connectButton.addEventListener("click", async () => {
+    try {
+        const session = await core.connectWallet();
+        state.account = session.account;
+        dom.detailWallet.textContent = core.formatAddress(state.account);
+        toast("success", "錢包已連接");
+    } catch (error) {
+        toast("error", normalizeError(error));
+    }
+});
+
+dom.detailAddCartButton.addEventListener("click", addCurrentProductToCart);
+dom.detailFavoriteButton.addEventListener("click", toggleCurrentProductFavorite);
+
+hydrate().catch((error) => toast("error", normalizeError(error)));

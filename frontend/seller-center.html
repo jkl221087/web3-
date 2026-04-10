@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Seller Center</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/frontend/styles.css?v=20260411a" />
+</head>
+<body class="fashion-body seller-body">
+    <div class="bg-shape bg-shape-a"></div>
+    <div class="bg-shape bg-shape-b"></div>
+
+    <div class="page-shell">
+        <header class="top-nav">
+            <a class="brand" href="/frontend/index.html">
+                <span class="brand-mark">EF</span>
+                <div>
+                    <strong>Seller Center</strong>
+                    <small>賣家訂單操作與提領</small>
+                </div>
+            </a>
+
+            <nav class="nav-links">
+                <a href="/frontend/index.html">回到商店</a>
+                <a href="/frontend/buyer-center.html">買家中心</a>
+                <a href="/frontend/seller.html">商品後台</a>
+            </nav>
+
+            <div class="nav-actions">
+                <button id="switchNetworkButton" class="button ghost" type="button">切到 Sepolia</button>
+                <button id="connectButton" class="button primary" type="button">連接錢包</button>
+            </div>
+        </header>
+
+        <main class="member-center-shell">
+            <aside class="member-sidebar">
+                <div class="member-sidebar-head">
+                    <p class="eyebrow">Seller Space</p>
+                    <h2>賣家中心</h2>
+                    <p>集中處理接單、物流節點更新與提領，不再和商品上架後台混在同一頁。</p>
+                </div>
+
+                <nav class="member-sidebar-nav">
+                    <a href="#sellerOverview" class="member-nav-link active">總覽</a>
+                    <a href="#sellerFocus" class="member-nav-link">待辦工作</a>
+                    <a href="#sellerOrders" class="member-nav-link">接單工作台</a>
+                </nav>
+
+                <div class="member-sidebar-card">
+                    <div class="summary-line"><span>目前帳號</span><strong id="walletAddress">尚未連接</strong></div>
+                    <div class="summary-line"><span>目前鏈</span><strong id="chainId">-</strong></div>
+                    <div class="summary-line"><span>合約地址</span><strong id="contractAddressLabel">未設定</strong></div>
+                    <div class="summary-line"><span>託管餘額</span><strong id="escrowBalance">-</strong></div>
+                </div>
+            </aside>
+
+            <div class="member-content">
+                <section id="sellerOverview" class="seller-hero seller-center-hero">
+                    <div>
+                        <p class="eyebrow">Seller Dashboard</p>
+                        <h1>這裡只顯示你作為賣家的訂單，可以集中處理出貨、到貨、提醒取貨與鏈上提領。</h1>
+                        <p>商品上架與庫存還是在 Seller Studio，這個頁面專注在接單與金流結算，讓操作更像真正的賣家中心。</p>
+                    </div>
+                </section>
+
+                <section id="sellerMetrics" class="member-metrics-grid"></section>
+
+                <section class="panel-card">
+                    <div class="section-head">
+                        <div>
+                            <p class="eyebrow">Monthly Report</p>
+                            <h2>賣家月報表</h2>
+                        </div>
+                    </div>
+                    <div id="sellerMonthlyReport" class="member-metrics-grid"></div>
+                </section>
+
+                <section id="sellerFocus" class="panel-card">
+                    <div class="section-head">
+                        <div>
+                            <p class="eyebrow">Next Actions</p>
+                            <h2>賣家待辦工作</h2>
+                        </div>
+                    </div>
+                    <div id="sellerFocusList" class="member-focus-grid"></div>
+                </section>
+
+                <section class="panel-card">
+                    <div class="section-head">
+                        <div>
+                            <p class="eyebrow">Reputation</p>
+                            <h2>賣家評分與最新評論</h2>
+                        </div>
+                    </div>
+                    <div id="sellerReviewSummary" class="orders-summary-bar"></div>
+                    <div id="sellerReviewList" class="member-focus-grid"></div>
+                </section>
+
+                <section class="panel-card">
+                    <div class="section-head">
+                        <div>
+                            <p class="eyebrow">Payout History</p>
+                            <h2>提領歷史</h2>
+                        </div>
+                    </div>
+                    <div id="sellerPayoutSummary" class="orders-summary-bar"></div>
+                    <div id="sellerPayoutList" class="compact-product-grid"></div>
+                </section>
+
+                <section id="sellerOrders" class="panel-card">
+                    <div class="section-head">
+                        <div>
+                            <p class="eyebrow">Seller Orders</p>
+                            <h2>接單工作台</h2>
+                        </div>
+                        <div class="orders-toolbar-actions">
+                            <input id="orderSearchInput" class="search-input order-search-input" type="text" placeholder="搜尋訂單編號、商品名稱" />
+                            <select id="orderStageFilter" class="search-input order-stage-select">
+                                <option value="all">全部狀態</option>
+                                <option value="1">待出貨</option>
+                                <option value="2">運送中</option>
+                                <option value="3">已到貨</option>
+                                <option value="4">待買家取貨</option>
+                                <option value="5">可提領</option>
+                                <option value="6">已完成</option>
+                            </select>
+                            <button id="refreshOrdersButton" class="button ghost" type="button">重新整理</button>
+                        </div>
+                    </div>
+
+                    <div id="ordersSummary" class="orders-summary-bar"></div>
+                    <div id="ordersGrid" class="order-grid"></div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <div id="toastStack" class="toast-stack"></div>
+
+    <script src="/frontend/config.js"></script>
+    <script src="/node_modules/ethers/dist/ethers.umd.min.js"></script>
+    <script src="/frontend/shared.js"></script>
+    <script src="/frontend/seller-center.js"></script>
+</body>
+</html>

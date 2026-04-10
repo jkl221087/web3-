@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Seller Studio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/frontend/styles.css?v=20260410b" />
+    <style>
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "Noto Sans TC", sans-serif;
+            color: #17304a;
+            background: linear-gradient(180deg, #f5f9ff 0%, #dde9f5 100%);
+        }
+
+        .page-shell {
+            width: min(1320px, calc(100% - 36px));
+            margin: 0 auto;
+            padding: 28px 0 120px;
+        }
+
+        .top-nav,
+        .panel-card,
+        .seller-summary,
+        .access-card,
+        .admin-panel {
+            background: rgba(255, 255, 255, 0.52);
+            border: 1px solid rgba(255, 255, 255, 0.38);
+            box-shadow: 0 20px 80px rgba(55, 88, 128, 0.18);
+            backdrop-filter: blur(22px);
+            border-radius: 24px;
+        }
+
+        .top-nav,
+        .nav-links,
+        .nav-actions,
+        .detail-actions,
+        .summary-line,
+        .section-head,
+        .seller-gate-grid,
+        .seller-grid {
+            display: flex;
+            gap: 12px;
+        }
+
+        .top-nav,
+        .section-head,
+        .summary-line {
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .top-nav {
+            padding: 14px 18px;
+            margin-bottom: 28px;
+            border-radius: 999px;
+        }
+
+        .seller-main,
+        .seller-summary,
+        .panel-card,
+        .access-card {
+            display: grid;
+            gap: 18px;
+        }
+
+        .seller-gate-grid,
+        .seller-grid {
+            align-items: start;
+        }
+
+        .seller-gate-grid,
+        .seller-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .button {
+            padding: 13px 18px;
+            border-radius: 999px;
+            border: 1px solid rgba(104, 132, 164, 0.18);
+            background: rgba(255, 255, 255, 0.58);
+            color: #17304a;
+            font: inherit;
+            font-weight: 700;
+        }
+
+        .button.primary {
+            color: white;
+            background: linear-gradient(135deg, #2d6cdf 0%, #7ba9ff 100%);
+        }
+
+        .brand,
+        .nav-links a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        @media (max-width: 900px) {
+            .seller-gate-grid,
+            .seller-grid,
+            .top-nav,
+            .nav-links,
+            .nav-actions {
+                grid-template-columns: 1fr;
+                display: grid;
+            }
+        }
+    </style>
+</head>
+<body class="fashion-body seller-body">
+    <div class="bg-shape bg-shape-a"></div>
+    <div class="bg-shape bg-shape-b"></div>
+
+    <div class="page-shell">
+        <header class="top-nav">
+            <a class="brand" href="/frontend/index.html">
+                <span class="brand-mark">EF</span>
+                <div>
+                    <strong>Seller Studio</strong>
+                    <small>服裝商品上架與管理</small>
+                </div>
+            </a>
+
+            <nav class="nav-links">
+                <a href="/frontend/index.html">回到商店</a>
+                <a href="/frontend/seller-center.html">賣家中心</a>
+                <a href="#sellerGate">賣家資格</a>
+                <a href="#inventory">商品管理</a>
+            </nav>
+
+            <div class="nav-actions">
+                <button id="switchNetworkButton" class="button ghost" type="button">切到 Sepolia</button>
+                <button id="connectButton" class="button primary" type="button">連接錢包</button>
+            </div>
+        </header>
+
+        <main class="seller-main">
+            <section class="seller-hero">
+                <div>
+                    <p class="eyebrow">Seller Review</p>
+                    <h1>賣家後台必須先通過地址審核，不能在首頁讓所有人直接當作賣家使用。</h1>
+                    <p>這裡會先檢查你目前連接的地址是否是已核准賣家。未核准地址只能送出申請，核准後才會開放商品上架與庫存管理。</p>
+                </div>
+                <div class="seller-summary">
+                    <div class="summary-line"><span>目前帳號</span><strong id="walletAddress">尚未連接</strong></div>
+                    <div class="summary-line"><span>合約地址</span><strong id="contractAddressLabel">未設定</strong></div>
+                    <div class="summary-line"><span>賣家資格</span><strong id="sellerStatusLabel">未連接</strong></div>
+                    <div class="summary-line"><span>我的商品數</span><strong id="inventoryCount">0</strong></div>
+                </div>
+            </section>
+
+            <section id="sellerGate" class="panel-card seller-gate">
+                <div class="section-head">
+                    <div>
+                        <p class="eyebrow">Access Gate</p>
+                        <h2>賣家資格審核</h2>
+                    </div>
+                </div>
+
+                <div class="seller-gate-grid">
+                    <article class="access-card">
+                        <span id="sellerStatusBadge" class="status-badge neutral">尚未驗證</span>
+                        <h3 id="sellerGateTitle">請先連接錢包</h3>
+                        <p id="sellerGateDescription">連接後會檢查目前地址是否為已核准賣家，並決定是否開放後台功能。</p>
+                        <div class="detail-actions">
+                            <button id="requestSellerAccessButton" class="button primary" type="button">申請賣家資格</button>
+                        </div>
+                    </article>
+
+                    <article id="sellerAdminPanel" class="panel-card admin-panel">
+                        <div class="section-head compact-head">
+                            <div>
+                                <p class="eyebrow">Owner Review</p>
+                                <h2>待審核賣家</h2>
+                            </div>
+                            <button id="refreshRequestsButton" class="button ghost" type="button">重新整理</button>
+                        </div>
+                        <div id="sellerRequestsList" class="request-list"></div>
+                    </article>
+                </div>
+            </section>
+
+            <div id="sellerWorkspace" class="seller-workspace hidden">
+                <section id="create" class="seller-grid">
+                    <article class="panel-card">
+                        <div class="section-head">
+                            <div>
+                                <p class="eyebrow">Create</p>
+                                <h2>新增服裝商品</h2>
+                            </div>
+                        </div>
+
+                        <form id="createProductForm" class="seller-form">
+                            <label class="field">
+                                <span>商品名稱</span>
+                                <input id="productName" type="text" placeholder="例如：秋冬羊毛長版外套" required />
+                            </label>
+                            <label class="field">
+                                <span>商品價格（ETH 測試）</span>
+                                <input id="productPrice" type="number" step="0.0001" min="0" placeholder="0.02" required />
+                            </label>
+                            <label class="field">
+                                <span>分類</span>
+                                <select id="departmentSelect">
+                                    <option value="男裝">男裝</option>
+                                    <option value="女裝">女裝</option>
+                                    <option value="孩童">孩童</option>
+                                </select>
+                            </label>
+                            <label class="field">
+                                <span>季節</span>
+                                <select id="seasonSelect">
+                                    <option value="四季">四季</option>
+                                    <option value="夏季">夏季</option>
+                                    <option value="秋季">秋季</option>
+                                    <option value="冬季">冬季</option>
+                                </select>
+                            </label>
+                            <label class="field">
+                                <span>款式</span>
+                                <select id="styleSelect">
+                                    <option value="上衣">上衣</option>
+                                    <option value="外套">外套</option>
+                                    <option value="洋裝">洋裝</option>
+                                    <option value="褲裝">褲裝</option>
+                                    <option value="針織">針織</option>
+                                    <option value="配件">配件</option>
+                                </select>
+                            </label>
+                            <label class="field">
+                                <span>圖片網址</span>
+                                <input id="imageUrlInput" type="text" placeholder="可留空，系統會自動產生服裝視覺圖" />
+                            </label>
+                            <label class="field">
+                                <span>商品敘述</span>
+                                <textarea id="descriptionInput" rows="4" placeholder="描述版型、材質、搭配感受"></textarea>
+                            </label>
+                            <button class="button primary" type="submit">上架商品</button>
+                        </form>
+                    </article>
+
+                    <article class="panel-card preview-card">
+                        <div class="section-head">
+                            <div>
+                                <p class="eyebrow">Preview</p>
+                                <h2>前台展示預覽</h2>
+                            </div>
+                        </div>
+                        <div class="product-preview">
+                            <img id="previewImage" alt="商品預覽圖" />
+                            <div class="preview-content">
+                                <div class="preview-tags">
+                                    <span id="previewDepartment" class="tag-pill">女裝</span>
+                                    <span id="previewSeason" class="tag-pill">四季</span>
+                                    <span id="previewStyle" class="tag-pill">上衣</span>
+                                </div>
+                                <h3 id="previewName">服裝商品預覽</h3>
+                                <p id="previewDescription">上架後，這張卡片會像前台商品一樣顯示圖片、分類與敘述。</p>
+                            </div>
+                        </div>
+                    </article>
+                </section>
+
+                <section id="inventory" class="panel-card">
+                    <div class="section-head">
+                        <div>
+                            <p class="eyebrow">Inventory</p>
+                            <h2>我的商品管理</h2>
+                        </div>
+                        <button id="refreshInventoryButton" class="button ghost" type="button">重新整理</button>
+                    </div>
+                    <div id="inventoryGrid" class="inventory-grid"></div>
+                </section>
+            </div>
+        </main>
+    </div>
+    <div id="toastStack" class="toast-stack"></div>
+
+    <script src="/frontend/config.js"></script>
+    <script src="/node_modules/ethers/dist/ethers.umd.min.js"></script>
+    <script src="/frontend/shared.js"></script>
+    <script src="/frontend/seller.js"></script>
+</body>
+</html>

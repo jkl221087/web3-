@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Escrow Fashion Store</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap"
+        rel="stylesheet" />
+    <link rel="stylesheet" href="/frontend/styles.css?v=20260410b" />
+</head>
+
+<body class="fashion-body store-body">
+    <div class="bg-shape bg-shape-a"></div>
+    <div class="bg-shape bg-shape-b"></div>
+
+    <header class="floating-nav">
+        <a class="floating-brand" href="#top">EF</a>
+        <nav class="floating-nav-links">
+            <a href="#top">首頁</a>
+            <a href="#news">最新消息</a>
+            <a href="#collections">新品滑動</a>
+            <a href="/frontend/buyer-center.html">買家中心</a>
+            <a href="/frontend/seller-center.html">賣家中心</a>
+            <a href="/frontend/seller.html">賣家後台</a>
+        </nav>
+    </header>
+
+    <button id="cartToggleButton" class="cart-toggle cart-float" type="button" aria-label="打開購物車">
+        <span class="cart-float-icon">Bag</span>
+        <span id="cartCount" class="cart-badge">0</span>
+    </button>
+
+    <div class="page-shell">
+        <main class="storefront-main">
+            <section id="top" class="hero-showcase">
+                <div class="hero-visual-card">
+                    <img class="hero-background-art" src="/frontend/assets/hero-fashion-store.svg" alt="服裝商店主視覺" />
+                    <div class="hero-overlay"></div>
+                    <div class="hero-copy">
+                        <p class="eyebrow">Glass Fashion Boutique</p>
+                        <h1>鏈上電商</h1>
+                        <p>
+                            這是一個結合前端展示與智能合約託管流程的服裝商店範例，展示如何在區塊鏈上實現安全的買賣交易。
+                        </p>
+                        <div class="hero-actions">
+                            <a href="#collections" class="button primary link-button">開始逛新品</a>
+                            <a href="/frontend/buyer-center.html" class="button ghost link-button">前往買家中心</a>
+                            <a href="/frontend/seller-center.html" class="button ghost link-button">前往賣家中心</a>
+                            <a href="/frontend/seller.html" class="button ghost link-button">前往賣家後台</a>
+                        </div>
+                        <div class="hero-trust-strip">
+                            <span>目前測試模式：ETH Escrow</span>
+                            <span>下一步可擴充：USDT 結算 / Swap Router</span>
+                        </div>
+                    </div>
+                </div>
+
+                <aside class="hero-floating-card">
+                    <div class="section-head compact-head">
+                        <div>
+                            <p class="eyebrow">Wallet Status</p>
+                            <h2>商店連線狀態</h2>
+                        </div>
+                    </div>
+                    <div class="hero-stat-list">
+                        <div class="hero-stat">
+                            <span>目前帳號</span>
+                            <strong id="walletAddress">尚未連接</strong>
+                        </div>
+                        <div class="hero-stat">
+                            <span>目前鏈</span>
+                            <strong id="chainId">-</strong>
+                        </div>
+                        <div class="hero-stat">
+                            <span>合約地址</span>
+                            <strong id="contractAddressLabel">未設定</strong>
+                        </div>
+                        <div class="hero-stat">
+                            <span>託管餘額</span>
+                            <strong id="escrowBalance">-</strong>
+                        </div>
+                    </div>
+                    <div class="wallet-actions">
+                        <button id="switchNetworkButton" class="button ghost" type="button">切到 Sepolia</button>
+                        <button id="connectButton" class="button primary" type="button">連接錢包</button>
+                    </div>
+                </aside>
+            </section>
+
+            <section id="news" class="news-section">
+                <div class="section-head">
+                    <div>
+                        <p class="eyebrow">Store Bulletin</p>
+                        <h2>店內最新消息與優惠</h2>
+                    </div>
+                </div>
+
+                <div class="news-grid">
+                    <article class="news-card featured">
+                        <span class="news-pill">NEW DROP</span>
+                        <strong>2026 春夏系列上線</strong>
+                        <p>主打透氣上衣、輕量外套與適合城市移動的層次穿搭，已開放加入購物車與鏈上結帳。</p>
+                    </article>
+                    <article class="news-card">
+                        <span class="news-pill">PROMO</span>
+                        <strong>本週精選款式</strong>
+                        <p>以女裝針織、男裝外套與孩童四季單品作為店內輪播主角，首頁底部會自動滑動展示。</p>
+                    </article>
+                    <article class="news-card">
+                        <span class="news-pill">ESCROW</span>
+                        <strong>物流節點已納入流程</strong>
+                        <p>賣家接單後可依序更新出貨、到貨、提醒取貨與待取貨狀態，買家確認取貨後賣家才可提領。</p>
+                    </article>
+                </div>
+            </section>
+
+            <section class="panel-card recommendation-stage">
+                <div class="section-head">
+                    <div>
+                        <p class="eyebrow">Store Picks</p>
+                        <h2>熱門商品與高評分推薦</h2>
+                    </div>
+                </div>
+
+                <div class="member-dual-grid">
+                    <article class="panel-card recommendation-card">
+                        <div class="section-head compact-head">
+                            <div>
+                                <p class="eyebrow">Popular</p>
+                                <h2>熱門商品</h2>
+                            </div>
+                        </div>
+                        <div id="popularProductsGrid" class="compact-product-grid"></div>
+                    </article>
+
+                    <article class="panel-card recommendation-card">
+                        <div class="section-head compact-head">
+                            <div>
+                                <p class="eyebrow">Top Rated</p>
+                                <h2>高評分商品</h2>
+                            </div>
+                        </div>
+                        <div id="topRatedProductsGrid" class="compact-product-grid"></div>
+                    </article>
+                </div>
+            </section>
+
+            <section id="collections" class="catalog-stage">
+                <div class="section-head">
+                    <div>
+                        <p class="eyebrow">Slide Collection</p>
+                        <h2>店內衣服卡片滑動展示</h2>
+                    </div>
+                    <div class="catalog-tools">
+                        <input id="searchInput" class="search-input" type="text" placeholder="搜尋商品名稱、分類、款式" />
+                    </div>
+                </div>
+
+                <div id="categoryFilters" class="category-filters"></div>
+                <div id="catalogViewport" class="catalog-viewport">
+                    <div id="catalogGrid" class="product-rail"></div>
+                </div>
+            </section>
+
+            <section id="orders" class="orders-section">
+                <div class="section-head">
+                    <div>
+                        <p class="eyebrow">Orders</p>
+                        <h2>我的訂單與物流狀態</h2>
+                    </div>
+                    <div class="orders-toolbar">
+                        <div id="orderRoleTabs" class="segmented-tabs">
+                            <button class="segment-tab active" data-role-filter="all" type="button">全部</button>
+                            <button class="segment-tab" data-role-filter="buyer" type="button">我是買家</button>
+                            <button class="segment-tab" data-role-filter="seller" type="button">我是賣家</button>
+                        </div>
+                        <div class="orders-toolbar-actions">
+                            <input id="orderSearchInput" class="search-input order-search-input" type="text" placeholder="搜尋訂單編號、商品名稱" />
+                            <select id="orderStageFilter" class="search-input order-stage-select">
+                                <option value="all">全部狀態</option>
+                                <option value="1">已付款</option>
+                                <option value="2">已出貨</option>
+                                <option value="3">已到貨</option>
+                                <option value="4">等待取貨</option>
+                                <option value="5">已取貨</option>
+                                <option value="6">已完成</option>
+                            </select>
+                            <button id="refreshOrdersButton" class="button ghost" type="button">重新整理</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="ordersSummary" class="orders-summary-bar"></div>
+                <div id="ordersGrid" class="order-grid"></div>
+            </section>
+        </main>
+    </div>
+
+    <aside id="cartDrawer" class="cart-drawer">
+        <div class="drawer-head">
+            <div>
+                <p class="eyebrow">Cart</p>
+                <h2>購物車</h2>
+            </div>
+            <button id="cartCloseButton" class="icon-button" type="button">×</button>
+        </div>
+        <div id="cartItems" class="cart-items"></div>
+        <div class="cart-footer">
+            <div class="summary-line">
+                <span>總件數</span>
+                <strong id="cartQuantity">0</strong>
+            </div>
+            <div class="summary-line">
+                <span>總金額</span>
+                <strong id="cartTotal">0 ETH</strong>
+            </div>
+            <button id="checkoutButton" class="button primary full-width" type="button">前往結帳</button>
+            <button id="clearCartButton" class="button ghost full-width" type="button">清空購物車</button>
+        </div>
+    </aside>
+
+    <div id="drawerBackdrop" class="drawer-backdrop"></div>
+    <div id="toastStack" class="toast-stack"></div>
+
+    <script src="/frontend/config.js"></script>
+    <script src="/node_modules/ethers/dist/ethers.umd.min.js"></script>
+    <script src="/frontend/shared.js"></script>
+    <script src="/frontend/store.js"></script>
+</body>
+
+</html>

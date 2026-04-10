@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Product Detail</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/frontend/styles.css?v=20260410b" />
+    <style>
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "Noto Sans TC", sans-serif;
+            color: #17304a;
+            background: linear-gradient(180deg, #f5f9ff 0%, #dde9f5 100%);
+        }
+
+        .page-shell {
+            width: min(1320px, calc(100% - 36px));
+            margin: 0 auto;
+            padding: 28px 0 120px;
+        }
+
+        .top-nav,
+        .detail-gallery,
+        .detail-info,
+        .panel-card {
+            background: rgba(255, 255, 255, 0.52);
+            border: 1px solid rgba(255, 255, 255, 0.38);
+            box-shadow: 0 20px 80px rgba(55, 88, 128, 0.18);
+            backdrop-filter: blur(22px);
+            border-radius: 24px;
+        }
+
+        .top-nav,
+        .nav-links,
+        .nav-actions,
+        .detail-actions,
+        .detail-layout,
+        .section-head {
+            display: flex;
+            gap: 12px;
+        }
+
+        .top-nav,
+        .section-head {
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .top-nav {
+            padding: 14px 18px;
+            margin-bottom: 28px;
+            border-radius: 999px;
+        }
+
+        .detail-layout {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            align-items: start;
+            gap: 22px;
+            margin-bottom: 28px;
+        }
+
+        .detail-gallery,
+        .detail-info,
+        .panel-card {
+            padding: 22px;
+        }
+
+        .detail-gallery img {
+            width: 100%;
+            display: block;
+            border-radius: 20px;
+        }
+
+        .button {
+            padding: 13px 18px;
+            border-radius: 999px;
+            border: 1px solid rgba(104, 132, 164, 0.18);
+            background: rgba(255, 255, 255, 0.58);
+            color: #17304a;
+            font: inherit;
+            font-weight: 700;
+        }
+
+        .button.primary {
+            color: white;
+            background: linear-gradient(135deg, #2d6cdf 0%, #7ba9ff 100%);
+        }
+
+        .brand,
+        .nav-links a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        @media (max-width: 900px) {
+            .detail-layout,
+            .top-nav,
+            .nav-links,
+            .nav-actions {
+                grid-template-columns: 1fr;
+                display: grid;
+            }
+        }
+    </style>
+</head>
+<body class="fashion-body detail-body">
+    <div class="bg-shape bg-shape-a"></div>
+    <div class="bg-shape bg-shape-b"></div>
+
+    <div class="page-shell">
+        <header class="top-nav">
+            <a class="brand" href="/frontend/index.html">
+                <span class="brand-mark">EF</span>
+                <div>
+                    <strong>Product Detail</strong>
+                    <small>商品詳情頁</small>
+                </div>
+            </a>
+
+            <nav class="nav-links">
+                <a href="/frontend/index.html">回到商店</a>
+                <a href="/frontend/buyer-center.html">買家中心</a>
+                <a href="/frontend/seller-center.html">賣家中心</a>
+                <a href="/frontend/seller.html">賣家後台</a>
+            </nav>
+
+            <div class="nav-actions">
+                <button id="connectButton" class="button primary" type="button">連接錢包</button>
+            </div>
+        </header>
+
+        <main class="detail-layout">
+            <section class="detail-gallery">
+                <img id="detailImage" alt="商品圖片" />
+            </section>
+
+            <section class="detail-info">
+                <p class="eyebrow">Clothing Detail</p>
+                <div id="detailTags" class="detail-tags"></div>
+                <h1 id="detailName">載入商品中...</h1>
+                <p id="detailDescription" class="detail-description">正在讀取商品資料與前端分類資訊。</p>
+                <div class="detail-price-line">
+                    <span>價格</span>
+                    <strong id="detailPrice">-</strong>
+                </div>
+                <div class="detail-meta-list">
+                    <div><span>商品 ID</span><strong id="detailProductId">-</strong></div>
+                    <div><span>賣家</span><strong id="detailSeller">-</strong></div>
+                    <div><span>目前帳號</span><strong id="detailWallet">尚未連接</strong></div>
+                </div>
+                <div class="panel-card seller-reputation-panel">
+                    <div class="section-head compact-head">
+                        <div>
+                            <p class="eyebrow">Seller Reputation</p>
+                            <h2>賣家評分</h2>
+                        </div>
+                    </div>
+                    <div id="detailSellerReviewSummary" class="orders-summary-bar"></div>
+                    <div id="detailSellerReviewList" class="compact-product-grid"></div>
+                </div>
+                <div class="detail-actions">
+                    <button id="detailAddCartButton" class="button primary" type="button">加入購物車</button>
+                    <button id="detailFavoriteButton" class="button ghost" type="button">加入收藏</button>
+                    <a href="/frontend/index.html" class="button ghost link-button">繼續逛其他商品</a>
+                </div>
+            </section>
+        </main>
+
+        <section class="panel-card">
+            <div class="section-head">
+                <div>
+                    <p class="eyebrow">Related</p>
+                    <h2>相關商品</h2>
+                </div>
+            </div>
+            <div id="relatedGrid" class="product-grid"></div>
+        </section>
+    </div>
+    <div id="toastStack" class="toast-stack"></div>
+
+    <script src="/frontend/config.js"></script>
+    <script src="/node_modules/ethers/dist/ethers.umd.min.js"></script>
+    <script src="/frontend/shared.js"></script>
+    <script src="/frontend/product.js"></script>
+</body>
+</html>
