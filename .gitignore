@@ -16,3 +16,7 @@ uploads/products/*
 target/
 dist/
 coverage/
+cache/
+artifacts/build-info/
+artifacts/contracts/**/*.dbg.json
+artifacts/contracts/**/*.json

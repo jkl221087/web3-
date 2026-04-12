@@ -284,7 +284,7 @@ function renderCart() {
 
     dom.cartCount.textContent = `${quantity}`;
     dom.cartQuantity.textContent = `${quantity}`;
-    dom.cartTotal.textContent = quantity ? core.formatEth(totalWei) : "0 ETH";
+    dom.cartTotal.textContent = quantity ? core.formatEth(totalWei) : core.formatEth(0n);
 
     if (!items.length) {
         dom.cartItems.innerHTML = '<article class="cart-card"><strong>購物車目前是空的</strong><p>先從滑動商品區挑一件喜歡的服裝，再回來這裡結帳。</p></article>';
@@ -573,6 +573,9 @@ function updateCartQuantity(entryKey, delta) {
 
 async function loadData() {
     try {
+        if (core.getConfiguredContractAddress()) {
+            await core.fetchPaymentTokenMeta();
+        }
         state.products = await core.fetchProducts();
         state.orders = core.getConfiguredContractAddress() ? await core.fetchOrders() : [];
         state.reviews = await core.fetchReviews();
@@ -605,12 +608,17 @@ async function checkoutCart() {
 
     const contract = await core.ensureContract({ requireSigner: true });
     const items = getCartDetailedItems();
+    const totalTokenAmount = items.reduce((sum, item) => sum + item.totalWei, 0n);
+
+    const approvalTx = await core.ensurePaymentTokenApproval(totalTokenAmount);
+    if (approvalTx) {
+        toast("success", "已送出穩定幣授權，等待鏈上確認");
+        await approvalTx.wait();
+    }
 
     for (const item of items) {
         for (let count = 0; count < item.quantity; count += 1) {
-            const tx = await contract.create_and_fund_order(item.product.seller, item.product.priceWei, {
-                value: item.product.priceWei
-            });
+            const tx = await contract.create_and_fund_order(item.product.seller, item.product.priceWei);
             const receipt = await tx.wait();
             let createdOrderId = null;
 
@@ -643,7 +651,7 @@ async function checkoutCart() {
     syncCart();
     setCartOpen(false);
     await loadData();
-    toast("success", "結帳完成，訂單已建立");
+    toast("success", "穩定幣結帳完成，訂單已建立");
 }
 
 async function handleActionClick(event) {

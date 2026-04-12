@@ -15,8 +15,9 @@
 - 賣家中心：物流節點更新、評論口碑、提領歷史、月報表
 - 賣家後台：商品建立、上下架、賣家資格申請
 - 賣家後台：商品建立、上下架、賣家資格申請、網站內圖片上傳
+- Admin Center：賣家審核、商品管理、全店訂單與提領監控
 - 本地 Store API：商品、賣家、訂單 metadata、評論、提領歷史
-- Sepolia Escrow 合約：付款、確認收貨、提領
+- Sepolia USDT Escrow 合約：付款、確認收貨、提領
 
 ## Why This Project
 
@@ -35,7 +36,8 @@ Frontend (HTML / CSS / JS)
 ├─ Product Detail
 ├─ Buyer Center
 ├─ Seller Center
-└─ Seller Studio
+├─ Seller Studio
+└─ Admin Center
 
 Local Store API (Rust / Axum + SQLite)
 ├─ /api/products
@@ -78,6 +80,7 @@ Smart Contract (contracts/project_1.sol)
 - `/frontend/buyer-center.html`：買家中心
 - `/frontend/seller-center.html`：賣家中心
 - `/frontend/seller.html`：賣家商品後台
+- `/frontend/admin.html`：Admin 管理後台
 
 ## Getting Started
 
@@ -105,10 +108,15 @@ rustup --version
 window.APP_CONFIG = {
   DEFAULT_CONTRACT_ADDRESS: "",
   EXPECTED_CHAIN_ID: "0xaa36a7",
+  PAYMENT_TOKEN_SYMBOL: "USDT",
+  PAYMENT_TOKEN_DECIMALS: 6,
 };
 ```
 
 部署到 Sepolia 後，把 `DEFAULT_CONTRACT_ADDRESS` 換成你的合約地址。
+
+注意：`contractName_order` 現在是 ERC20 / USDT escrow，部署時要傳入支付 token 地址。
+本地測試可使用 [MockUSDT.sol](./contracts/mocks/MockUSDT.sol)。
 
 ### 4. Start Local Server
 
@@ -129,6 +137,7 @@ npm run frontend:node
 - `http://localhost:3000/frontend/buyer-center.html`
 - `http://localhost:3000/frontend/seller-center.html`
 - `http://localhost:3000/frontend/seller.html`
+- `http://localhost:3000/frontend/admin.html`
 
 ### 5. Compile Contract
 
@@ -136,7 +145,20 @@ npm run frontend:node
 npm run compile:contract
 ```
 
-### 6. Send a Test Transaction With Rust
+### 6. Run Contract Tests
+
+```powershell
+npm run test:contract
+```
+
+目前已經有一套基礎 escrow 測試，會驗證：
+
+- 下單付款
+- buyer / owner 完成訂單權限
+- seller 提領權限
+- 重複提領與不存在訂單的失敗情境
+
+### 7. Send a Test Transaction With Rust
 
 如果 `.env` 已經設定好 `RPC_URL` 和 `PRIVATE_KEY`，可以用 Rust 工具送測試交易：
 
@@ -205,13 +227,36 @@ web3-basics/
 - HTML / CSS
 - JSON seed files
 
-## Next Steps
+## Launch Roadmap
 
-- 改成正式資料庫與後端 API
-- 改成 ERC20 / USDT 結算
-- 接入 swap router
-- 增加部署腳本與測試
-- 補齊商品圖片上傳與真實媒體資產
+真正要往上線推，建議先照這個優先順序做：
+
+### P0 Must Have
+
+- 合約測試補齊：付款、確認收貨、提領、重複提領、防呆失敗情境
+- 權限正式化：buyer / seller / admin 的後端權限驗證與 session
+- 支付正式化：改成 ERC20 / USDT escrow，降低 ETH 價格波動影響
+- 正式資料庫：從本地 SQLite 規劃到 PostgreSQL 與 migration
+- 圖片儲存正式化：改接 S3、Cloudinary 或 Supabase Storage
+- 基本資安：輸入驗證、rate limit、CORS、錯誤處理、敏感資訊保護
+
+### P1 Should Have
+
+- 訂單系統完整化：取消訂單、退款、爭議處理、超時處理
+- 物流流程正式化：狀態機、時間戳、操作紀錄
+- 會員體驗：通知、地址簿、搜尋與篩選
+- Admin 後台補強：審核紀錄、商品審核、異常訂單監控、營運報表
+- 正式部署流程：環境變數、DB migration、備份與監控
+
+### P2 Nice To Have
+
+- 多圖商品、圖片排序、影片展示
+- 商品推薦與評價聚合
+- Swap / router 整合
+- Embedded wallet 或 account abstraction
+- 錯誤監控與營運分析面板
+
+完整版本請看 [ROADMAP.md](./ROADMAP.md)。
 
 ## License
 

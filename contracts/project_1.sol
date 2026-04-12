@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity >=0.8.20 <=0.8.35;
 
+interface IERC20EscrowToken {
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function transfer(address to, uint256 amount) external returns (bool);
+    function balanceOf(address account) external view returns (uint256);
+}
+
 contract Owner {
     address public owner;
 
@@ -14,9 +20,10 @@ contract Owner {
     }
 }
 
-// 主合約：只負責訂單付款、買家確認收貨、賣家提領。
+// 主合約：只負責 ERC20 / USDT 訂單付款、買家確認收貨、賣家提領。
 contract contractName_order is Owner {
     uint256 public Order_ID = 0;
+    address public immutable payment_token;
 
     struct OrderInfo {
         uint256 orderId;
@@ -47,26 +54,37 @@ contract contractName_order is Owner {
         uint256 amount
     );
 
+    constructor(address paymentToken_) {
+        require(paymentToken_ != address(0), "Payment token required");
+        payment_token = paymentToken_;
+    }
+
     function create_and_fund_order(
         address seller,
         uint256 _amount
-    ) external payable returns (uint256) {
+    ) external returns (uint256) {
         require(seller != address(0), "Seller required");
         require(_amount > 0, "Amount must be greater than 0");
-        require(msg.value == _amount, "Payment must equal order amount");
+
+        bool funded = IERC20EscrowToken(payment_token).transferFrom(
+            msg.sender,
+            address(this),
+            _amount
+        );
+        require(funded, "Token transfer failed");
 
         Order_ID++;
         orders[Order_ID] = OrderInfo({
             orderId: Order_ID,
             buy_user: msg.sender,
             sell_user: seller,
-            amount: msg.value,
+            amount: _amount,
             pay_state: true,
             complete_state: false,
             seller_withdrawn: false
         });
 
-        emit OrderCreated(Order_ID, msg.sender, seller, msg.value);
+        emit OrderCreated(Order_ID, msg.sender, seller, _amount);
         return Order_ID;
     }
 
@@ -106,8 +124,8 @@ contract contractName_order is Owner {
         uint256 amount = order.amount;
         order.seller_withdrawn = true;
 
-        (bool success, ) = payable(msg.sender).call{value: amount}("");
-        require(success, "Transfer failed");
+        bool success = IERC20EscrowToken(payment_token).transfer(msg.sender, amount);
+        require(success, "Token transfer failed");
 
         emit SellerWithdrawn(orderId, msg.sender, amount);
         return true;
@@ -121,6 +139,6 @@ contract contractName_order is Owner {
     }
 
     function get_contract_balance() external view returns (uint256) {
-        return address(this).balance;
+        return IERC20EscrowToken(payment_token).balanceOf(address(this));
     }
 }

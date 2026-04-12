@@ -296,7 +296,7 @@ async function createProduct(event) {
         const product = await core.createMockProduct({
             seller: state.account,
             name: dom.productName.value.trim(),
-            priceWei: window.ethers.parseEther(dom.productPrice.value),
+            priceWei: core.parsePaymentAmount(dom.productPrice.value),
             meta: buildPreviewMeta()
         });
 
@@ -379,6 +379,9 @@ async function approveSeller(address) {
 async function hydrate() {
     const session = await core.initWalletState();
     state.account = session.account;
+    if (core.getConfiguredContractAddress()) {
+        await core.fetchPaymentTokenMeta();
+    }
     dom.walletAddress.textContent = state.account ? core.formatAddress(state.account) : "尚未連接";
     const contractAddress = core.getConfiguredContractAddress();
     dom.contractAddressLabel.textContent = contractAddress ? core.formatAddress(contractAddress) : "未設定";

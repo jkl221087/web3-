@@ -2,13 +2,21 @@
     const CONTRACT_ABI = [
         "function owner() external view returns (address)",
         "function Order_ID() external view returns (uint256)",
-        "function create_and_fund_order(address seller, uint256 _amount) external payable returns (uint256)",
+        "function payment_token() external view returns (address)",
+        "function create_and_fund_order(address seller, uint256 _amount) external returns (uint256)",
         "function complete_order(uint256 orderId) external returns (bool)",
         "function confirm_order_received(uint256 orderId) external returns (bool)",
         "function withdraw_order_funds(uint256 orderId) external returns (bool)",
         "function get_order_info(uint256 orderId) external view returns ((uint256 orderId, address buy_user, address sell_user, uint256 amount, bool pay_state, bool complete_state, bool seller_withdrawn))",
         "function get_contract_balance() external view returns (uint256)",
         "event OrderCreated(uint256 indexed orderId, address indexed buyer, address indexed seller, uint256 amount)"
+    ];
+    const PAYMENT_TOKEN_ABI = [
+        "function symbol() external view returns (string)",
+        "function decimals() external view returns (uint8)",
+        "function balanceOf(address account) external view returns (uint256)",
+        "function allowance(address owner, address spender) external view returns (uint256)",
+        "function approve(address spender, uint256 amount) external returns (bool)"
     ];
 
     const CONTRACT_KEY = "fashion-store-contract-address";
@@ -48,6 +56,9 @@
         provider: null,
         signer: null,
         contract: null,
+        paymentTokenContract: null,
+        paymentTokenAddress: null,
+        paymentTokenMeta: null,
         validatedAddress: null,
         currentAccount: null
     };
@@ -101,6 +112,13 @@
 
     function clearStoredContractAddress() {
         window.localStorage.removeItem(CONTRACT_KEY);
+    }
+
+    function getFallbackPaymentTokenMeta() {
+        return {
+            symbol: String(window.APP_CONFIG?.PAYMENT_TOKEN_SYMBOL || "USDT").trim() || "USDT",
+            decimals: Number(window.APP_CONFIG?.PAYMENT_TOKEN_DECIMALS || 6)
+        };
     }
 
     function normalizeMeta(meta) {
@@ -289,7 +307,7 @@
             seller: record.seller,
             name: record.name,
             priceWei,
-            priceEth: window.ethers.formatEther(priceWei),
+            priceDisplay: formatEth(priceWei),
             isActive: Boolean(record.isActive),
             meta
         };
@@ -359,6 +377,14 @@
         return (Array.isArray(store.pending) ? store.pending : []).sort((a, b) => a.localeCompare(b));
     }
 
+    async function fetchSellersStore() {
+        const store = await apiRequest("/api/sellers");
+        return {
+            approved: Array.isArray(store.approved) ? store.approved : [],
+            pending: Array.isArray(store.pending) ? store.pending : []
+        };
+    }
+
     async function requestSellerAccess(address) {
         return apiRequest("/api/sellers/request", {
             method: "POST",
@@ -393,7 +419,14 @@
     }
 
     function formatEth(value) {
-        return `${Number(window.ethers.formatEther(value)).toFixed(4)} ETH`;
+        const meta = runtime.paymentTokenMeta || getFallbackPaymentTokenMeta();
+        const fractionDigits = meta.decimals >= 4 ? 4 : meta.decimals;
+        return `${Number(window.ethers.formatUnits(value, meta.decimals)).toFixed(fractionDigits)} ${meta.symbol}`;
+    }
+
+    function parsePaymentAmount(value) {
+        const meta = runtime.paymentTokenMeta || getFallbackPaymentTokenMeta();
+        return window.ethers.parseUnits(String(value || "0"), meta.decimals);
     }
 
     function escapeXml(value) {
@@ -507,12 +540,16 @@
         if (!runtime.contract || runtime.contract.target?.toLowerCase() !== address.toLowerCase()) {
             await verifyContractAddress(address);
             runtime.contract = new window.ethers.Contract(address, CONTRACT_ABI, targetSigner);
+            runtime.paymentTokenContract = null;
+            runtime.paymentTokenAddress = null;
+            runtime.paymentTokenMeta = null;
             runtime.validatedAddress = null;
         } else if (requireSigner && runtime.contract.runner !== runtime.signer) {
             runtime.contract = runtime.contract.connect(runtime.signer);
         }
 
         if (runtime.validatedAddress !== address.toLowerCase()) {
+            await runtime.contract.payment_token();
             await runtime.contract.get_contract_balance();
             runtime.validatedAddress = address.toLowerCase();
             setStoredContractAddress(address);
@@ -534,6 +571,9 @@
         runtime.signer = await runtime.provider.getSigner();
         runtime.currentAccount = await runtime.signer.getAddress();
         runtime.contract = null;
+        runtime.paymentTokenContract = null;
+        runtime.paymentTokenAddress = null;
+        runtime.paymentTokenMeta = null;
         runtime.validatedAddress = null;
 
         const chainId = await window.ethereum.request({ method: "eth_chainId" });
@@ -568,7 +608,7 @@
             buyer: order.buy_user,
             seller: order.sell_user,
             amountWei: order.amount,
-            amountEth: window.ethers.formatEther(order.amount),
+            amountDisplay: formatEth(order.amount),
             payState: order.pay_state,
             completeState: order.complete_state,
             sellerWithdrawn: order.seller_withdrawn,
@@ -615,7 +655,63 @@
             .sort((a, b) => b.orderId - a.orderId);
     }
 
+    async function ensurePaymentToken(options = {}) {
+        const { requireSigner = false } = options;
+        const contract = await ensureContract({ requireSigner });
+        const tokenAddress = await contract.payment_token();
+        const targetRunner = requireSigner ? runtime.signer : runtime.provider;
+
+        if (
+            !runtime.paymentTokenContract ||
+            runtime.paymentTokenAddress?.toLowerCase() !== tokenAddress.toLowerCase()
+        ) {
+            runtime.paymentTokenContract = new window.ethers.Contract(
+                tokenAddress,
+                PAYMENT_TOKEN_ABI,
+                targetRunner
+            );
+            runtime.paymentTokenAddress = tokenAddress;
+            runtime.paymentTokenMeta = null;
+        } else if (requireSigner && runtime.paymentTokenContract.runner !== runtime.signer) {
+            runtime.paymentTokenContract = runtime.paymentTokenContract.connect(runtime.signer);
+        }
+
+        if (!runtime.paymentTokenMeta) {
+            const fallback = getFallbackPaymentTokenMeta();
+            const [symbolResult, decimalsResult] = await Promise.allSettled([
+                runtime.paymentTokenContract.symbol(),
+                runtime.paymentTokenContract.decimals()
+            ]);
+
+            runtime.paymentTokenMeta = {
+                symbol: symbolResult.status === "fulfilled" ? symbolResult.value : fallback.symbol,
+                decimals: decimalsResult.status === "fulfilled" ? Number(decimalsResult.value) : fallback.decimals
+            };
+        }
+
+        return runtime.paymentTokenContract;
+    }
+
+    async function fetchPaymentTokenMeta() {
+        await ensurePaymentToken();
+        return runtime.paymentTokenMeta || getFallbackPaymentTokenMeta();
+    }
+
+    async function ensurePaymentTokenApproval(requiredAmount) {
+        const contract = await ensureContract({ requireSigner: true });
+        const paymentToken = await ensurePaymentToken({ requireSigner: true });
+        const ownerAddress = runtime.currentAccount || await runtime.signer.getAddress();
+        const allowance = await paymentToken.allowance(ownerAddress, contract.target);
+
+        if (allowance >= requiredAmount) {
+            return null;
+        }
+
+        return paymentToken.approve(contract.target, requiredAmount);
+    }
+
     async function fetchContractBalance() {
+        await fetchPaymentTokenMeta();
         const contract = await ensureContract();
         return contract.get_contract_balance();
     }
@@ -635,8 +731,12 @@
         fetchProducts,
         fetchOrders,
         fetchContractBalance,
+        fetchPaymentTokenMeta,
+        ensurePaymentToken,
+        ensurePaymentTokenApproval,
         fetchSellerProfile,
         fetchSellerRequests,
+        fetchSellersStore,
         requestSellerAccess,
         approveSellerAccess,
         createMockProduct,
@@ -664,6 +764,7 @@
         saveOrderFlowStage,
         formatAddress,
         formatEth,
+        parsePaymentAmount,
         normalizeMeta,
         inferMetaFromName,
         buildPlaceholderImage,
