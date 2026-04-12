@@ -89,6 +89,8 @@ struct SellerApprovePayload {
 struct OrderRecord {
     #[serde(rename = "orderId")]
     order_id: u64,
+    #[serde(default)]
+    buyer: String,
     #[serde(rename = "productId")]
     product_id: u64,
     #[serde(rename = "productName")]
@@ -105,6 +107,7 @@ struct OrderRecord {
 struct CreateOrderPayload {
     #[serde(rename = "orderId")]
     order_id: u64,
+    buyer: Option<String>,
     #[serde(rename = "productId")]
     product_id: Option<u64>,
     #[serde(rename = "productName")]
@@ -291,6 +294,10 @@ async fn main() {
         .route("/api/sellers", get(get_sellers))
         .route("/api/sellers/request", post(request_seller))
         .route("/api/sellers/approve", post(approve_seller))
+        .route("/api/dashboard/admin", get(get_admin_dashboard))
+        .route("/api/dashboard/seller", get(get_seller_dashboard))
+        .route("/api/dashboard/buyer", get(get_buyer_dashboard))
+        .route("/api/dashboard/me", get(get_my_dashboard))
         .route("/api/admin/audit", get(get_admin_audit_logs))
         .route("/api/orders", get(get_orders).post(upsert_order))
         .route("/api/orders/{id}/flow", patch(update_order_flow))
@@ -356,6 +363,7 @@ async fn initialize_database(db_path: &Path, seed: LegacySeedData) -> anyhow::Re
 
             CREATE TABLE IF NOT EXISTS orders (
                 order_id INTEGER PRIMARY KEY,
+                buyer TEXT NOT NULL DEFAULT '',
                 product_id INTEGER NOT NULL DEFAULT 0,
                 product_name TEXT NOT NULL DEFAULT '',
                 product_seller TEXT NOT NULL DEFAULT '',
@@ -415,6 +423,14 @@ async fn initialize_database(db_path: &Path, seed: LegacySeedData) -> anyhow::Re
         )
         .context("create sqlite tables")?;
 
+        if !column_exists(&conn, "orders", "buyer")? {
+            conn.execute(
+                "ALTER TABLE orders ADD COLUMN buyer TEXT NOT NULL DEFAULT ''",
+                [],
+            )
+            .context("add buyer column to orders")?;
+        }
+
         cleanup_expired_auth_records(&conn).context("cleanup expired auth records")?;
 
         if table_count(&conn, "products")? == 0 {
@@ -458,10 +474,11 @@ async fn initialize_database(db_path: &Path, seed: LegacySeedData) -> anyhow::Re
         if table_count(&conn, "orders")? == 0 {
             for order in seed.orders.into_values() {
                 conn.execute(
-                    "INSERT INTO orders (order_id, product_id, product_name, product_seller, price_wei, flow_stage)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    "INSERT INTO orders (order_id, buyer, product_id, product_name, product_seller, price_wei, flow_stage)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                     params![
                         order.order_id as i64,
+                        order.buyer,
                         order.product_id as i64,
                         order.product_name,
                         order.product_seller,
@@ -524,6 +541,22 @@ async fn initialize_database(db_path: &Path, seed: LegacySeedData) -> anyhow::Re
 fn table_count(conn: &Connection, table: &str) -> rusqlite::Result<i64> {
     let sql = format!("SELECT COUNT(*) FROM {table}");
     conn.query_row(&sql, [], |row| row.get(0))
+}
+
+fn column_exists(conn: &Connection, table: &str, column: &str) -> anyhow::Result<bool> {
+    let mut statement = conn
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .with_context(|| format!("prepare table info for {table}"))?;
+    let rows = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .with_context(|| format!("query table info for {table}"))?;
+
+    for row in rows {
+        if row? == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn json_error(status: StatusCode, message: &str) -> (StatusCode, axum::Json<Value>) {
@@ -879,27 +912,7 @@ async fn logout_session(
 }
 
 async fn get_products(State(state): State<AppState>) -> impl IntoResponse {
-    match with_connection(&state, |conn| {
-        let mut statement = conn
-            .prepare(
-                "SELECT product_id, seller, name, price_wei, is_active, meta_json
-                 FROM products
-                 ORDER BY product_id DESC",
-            )
-            .map_err(|error| log_internal_error("Failed to load products", error))?;
-        let rows = statement
-            .query_map([], map_product_row)
-            .map_err(|error| log_internal_error("Failed to query products", error))?;
-        let mut products = Vec::new();
-        for row in rows {
-            products.push(
-                row.map_err(|error| log_internal_error("Failed to parse product row", error))?,
-            );
-        }
-        Ok(products)
-    })
-    .await
-    {
+    match with_connection(&state, |conn| load_products(conn)).await {
         Ok(products) => axum::Json(products).into_response(),
         Err(error) => error.into_response(),
     }
@@ -1206,6 +1219,173 @@ async fn approve_seller(
     Ok((StatusCode::OK, axum::Json(sellers)))
 }
 
+async fn get_admin_dashboard(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> AppResult<impl IntoResponse> {
+    require_admin_actor(&state, &headers).await?;
+    let payload = with_connection(&state, |conn| {
+        let products = load_products(conn)?;
+        let sellers = load_sellers_store(conn)?;
+        let orders = load_orders(conn)?;
+        let reviews = load_reviews(conn)?;
+        let payouts = load_payouts(conn)?;
+        let audit_logs = load_audit_logs(conn)?;
+
+        Ok(json!({
+            "metrics": {
+                "approvedSellers": sellers.approved.len(),
+                "pendingSellers": sellers.pending.len(),
+                "activeProducts": products.iter().filter(|item| item.is_active).count(),
+                "inactiveProducts": products.iter().filter(|item| !item.is_active).count(),
+                "orders": orders.len(),
+                "reviews": reviews.len(),
+                "payouts": payouts.len()
+            },
+            "sellers": sellers,
+            "products": products,
+            "orders": orders,
+            "reviews": reviews,
+            "payouts": payouts,
+            "auditLogs": audit_logs
+        }))
+    }).await?;
+    Ok((StatusCode::OK, axum::Json(payload)))
+}
+
+async fn get_seller_dashboard(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> AppResult<impl IntoResponse> {
+    let actor = require_actor_address(&state, &headers).await?;
+    let admin_address = state.admin_address.clone();
+    let payload = with_connection(&state, move |conn| {
+        let seller_status = fetch_seller_status(conn, &actor)
+            .map_err(|error| log_internal_error("Failed to load seller status", error))?;
+        let is_admin = admin_address.as_deref() == Some(actor.as_str());
+        if seller_status.as_deref() != Some("approved") && !is_admin {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "Only approved sellers can access seller dashboard data",
+            ));
+        }
+        let seller_status_value = if is_admin {
+            "approved".to_string()
+        } else {
+            seller_status.unwrap_or_else(|| "guest".to_string())
+        };
+
+        let products = load_products(conn)?
+            .into_iter()
+            .filter(|item| normalize_address(&item.seller) == actor)
+            .collect::<Vec<_>>();
+        let orders = load_orders(conn)?
+            .into_values()
+            .filter(|item| normalize_address(&item.product_seller) == actor)
+            .collect::<Vec<_>>();
+        let reviews = load_reviews(conn)?
+            .into_iter()
+            .filter(|item| normalize_address(&item.seller) == actor)
+            .collect::<Vec<_>>();
+        let payouts = load_payouts(conn)?
+            .into_iter()
+            .filter(|item| normalize_address(&item.seller) == actor)
+            .collect::<Vec<_>>();
+        let audit_logs = load_audit_logs(conn)?
+            .into_iter()
+            .filter(|item| normalize_address(&item.actor) == actor || normalize_address(&item.subject) == actor)
+            .collect::<Vec<_>>();
+
+        Ok(json!({
+            "seller": actor,
+            "sellerStatus": seller_status_value,
+            "products": products,
+            "orders": orders,
+            "reviews": reviews,
+            "payouts": payouts,
+            "auditLogs": audit_logs
+        }))
+    }).await?;
+    Ok((StatusCode::OK, axum::Json(payload)))
+}
+
+async fn get_buyer_dashboard(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> AppResult<impl IntoResponse> {
+    let actor = require_actor_address(&state, &headers).await?;
+    let payload = with_connection(&state, move |conn| {
+        let orders = load_orders(conn)?
+            .into_values()
+            .filter(|item| normalize_address(&item.buyer) == actor)
+            .collect::<Vec<_>>();
+        let reviews = load_reviews(conn)?
+            .into_iter()
+            .filter(|item| normalize_address(&item.buyer) == actor)
+            .collect::<Vec<_>>();
+        let payouts = load_payouts(conn)?
+            .into_iter()
+            .filter(|item| normalize_address(&item.buyer) == actor)
+            .collect::<Vec<_>>();
+
+        Ok(json!({
+            "buyer": actor,
+            "orders": orders,
+            "reviews": reviews,
+            "payouts": payouts
+        }))
+    }).await?;
+    Ok((StatusCode::OK, axum::Json(payload)))
+}
+
+async fn get_my_dashboard(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> AppResult<impl IntoResponse> {
+    let actor = require_actor_address(&state, &headers).await?;
+    let admin_address = state.admin_address.clone();
+    let payload = with_connection(&state, move |conn| {
+        let seller_status = fetch_seller_status(conn, &actor)
+            .map_err(|error| log_internal_error("Failed to load seller status", error))?
+            .unwrap_or_else(|| "guest".to_string());
+        let is_admin = admin_address.as_deref() == Some(actor.as_str());
+        let seller_status_value = if is_admin {
+            "approved".to_string()
+        } else {
+            seller_status
+        };
+
+        let orders = load_orders(conn)?
+            .into_values()
+            .filter(|item| {
+                normalize_address(&item.buyer) == actor || normalize_address(&item.product_seller) == actor
+            })
+            .collect::<Vec<_>>();
+        let reviews = load_reviews(conn)?
+            .into_iter()
+            .filter(|item| {
+                normalize_address(&item.buyer) == actor || normalize_address(&item.seller) == actor
+            })
+            .collect::<Vec<_>>();
+        let payouts = load_payouts(conn)?
+            .into_iter()
+            .filter(|item| {
+                normalize_address(&item.buyer) == actor || normalize_address(&item.seller) == actor
+            })
+            .collect::<Vec<_>>();
+
+        Ok(json!({
+            "actor": actor,
+            "isAdmin": is_admin,
+            "sellerStatus": seller_status_value,
+            "orders": orders,
+            "reviews": reviews,
+            "payouts": payouts
+        }))
+    }).await?;
+    Ok((StatusCode::OK, axum::Json(payload)))
+}
+
 async fn get_admin_audit_logs(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1227,9 +1407,23 @@ async fn upsert_order(
     headers: HeaderMap,
     axum::Json(payload): axum::Json<CreateOrderPayload>,
 ) -> AppResult<impl IntoResponse> {
-    let _actor = require_actor_address(&state, &headers).await?;
+    let actor = require_actor_address(&state, &headers).await?;
     if payload.order_id == 0 {
         return Err(json_error(StatusCode::BAD_REQUEST, "Order ID required"));
+    }
+    if let Some(buyer) = payload.buyer.as_deref() {
+        if !buyer.trim().is_empty() && !is_valid_evm_address(buyer) {
+            return Err(json_error(
+                StatusCode::BAD_REQUEST,
+                "buyer must be a valid EVM address",
+            ));
+        }
+        if !buyer.trim().is_empty() && normalize_address(buyer) != actor {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "buyer must match the connected wallet address",
+            ));
+        }
     }
     if let Some(product_seller) = payload.product_seller.as_deref() {
         if !product_seller.trim().is_empty() && !is_valid_evm_address(product_seller) {
@@ -1249,6 +1443,13 @@ async fn upsert_order(
             .unwrap_or_default();
         let next = OrderRecord {
             order_id: payload.order_id,
+            buyer: payload.buyer.unwrap_or_else(|| {
+                if current.buyer.is_empty() {
+                    actor.clone()
+                } else {
+                    current.buyer.clone()
+                }
+            }),
             product_id: payload.product_id.unwrap_or(current.product_id),
             product_name: payload.product_name.unwrap_or(current.product_name),
             product_seller: payload.product_seller.unwrap_or(current.product_seller),
@@ -1257,9 +1458,10 @@ async fn upsert_order(
         };
 
         conn.execute(
-            "INSERT INTO orders (order_id, product_id, product_name, product_seller, price_wei, flow_stage)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            "INSERT INTO orders (order_id, buyer, product_id, product_name, product_seller, price_wei, flow_stage)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT(order_id) DO UPDATE SET
+                 buyer = excluded.buyer,
                  product_id = excluded.product_id,
                  product_name = excluded.product_name,
                  product_seller = excluded.product_seller,
@@ -1267,6 +1469,7 @@ async fn upsert_order(
                  flow_stage = excluded.flow_stage",
             params![
                 next.order_id as i64,
+                next.buyer,
                 next.product_id as i64,
                 next.product_name,
                 next.product_seller,
@@ -1611,11 +1814,12 @@ fn map_product_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Product> {
 fn map_order_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<OrderRecord> {
     Ok(OrderRecord {
         order_id: row.get::<_, i64>(0)? as u64,
-        product_id: row.get::<_, i64>(1)? as u64,
-        product_name: row.get(2)?,
-        product_seller: row.get(3)?,
-        price_wei: row.get(4)?,
-        flow_stage: row.get::<_, i64>(5)? as u8,
+        buyer: row.get(1)?,
+        product_id: row.get::<_, i64>(2)? as u64,
+        product_name: row.get(3)?,
+        product_seller: row.get(4)?,
+        price_wei: row.get(5)?,
+        flow_stage: row.get::<_, i64>(6)? as u8,
     })
 }
 
@@ -1672,6 +1876,27 @@ fn fetch_product_by_id(conn: &Connection, product_id: u64) -> AppResult<Option<P
     )
     .optional()
     .map_err(|error| log_internal_error("Failed to query product", error))
+}
+
+fn load_products(conn: &Connection) -> AppResult<Vec<Product>> {
+    let mut statement = conn
+        .prepare(
+            "SELECT product_id, seller, name, price_wei, is_active, meta_json
+             FROM products
+             ORDER BY product_id DESC",
+        )
+        .map_err(|error| log_internal_error("Failed to load products", error))?;
+    let rows = statement
+        .query_map([], map_product_row)
+        .map_err(|error| log_internal_error("Failed to query products", error))?;
+
+    let mut products = Vec::new();
+    for row in rows {
+        products.push(
+            row.map_err(|error| log_internal_error("Failed to parse product row", error))?,
+        );
+    }
+    Ok(products)
 }
 
 fn fetch_auth_nonce(conn: &Connection, address: &str) -> rusqlite::Result<Option<String>> {
@@ -1796,7 +2021,7 @@ fn load_audit_logs(conn: &Connection) -> AppResult<Vec<AuditLog>> {
 
 fn fetch_order_by_id(conn: &Connection, order_id: u64) -> rusqlite::Result<Option<OrderRecord>> {
     conn.query_row(
-        "SELECT order_id, product_id, product_name, product_seller, price_wei, flow_stage
+        "SELECT order_id, buyer, product_id, product_name, product_seller, price_wei, flow_stage
          FROM orders
          WHERE order_id = ?1",
         params![order_id as i64],
@@ -1808,7 +2033,7 @@ fn fetch_order_by_id(conn: &Connection, order_id: u64) -> rusqlite::Result<Optio
 fn load_orders(conn: &Connection) -> AppResult<BTreeMap<String, OrderRecord>> {
     let mut statement = conn
         .prepare(
-            "SELECT order_id, product_id, product_name, product_seller, price_wei, flow_stage
+            "SELECT order_id, buyer, product_id, product_name, product_seller, price_wei, flow_stage
              FROM orders
              ORDER BY order_id DESC",
         )

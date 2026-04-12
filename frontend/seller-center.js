@@ -426,10 +426,15 @@ function renderOrders() {
 async function loadData() {
     try {
         state.products = await core.fetchProducts();
-        if (state.account && state.session?.authenticated) {
+        if (state.account && state.session?.authenticated && state.isSeller) {
+            const dashboard = await core.fetchSellerDashboard();
             state.orders = await core.fetchOrders();
-            state.reviews = await core.fetchReviews();
-            state.payouts = await core.fetchPayouts();
+            state.reviews = Array.isArray(dashboard.reviews) ? dashboard.reviews : [];
+            state.payouts = Array.isArray(dashboard.payouts) ? dashboard.payouts : [];
+        } else {
+            state.orders = [];
+            state.reviews = [];
+            state.payouts = [];
         }
         const balance = await core.fetchContractBalance();
         dom.escrowBalance.textContent = core.formatEth(balance);

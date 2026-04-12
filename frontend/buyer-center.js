@@ -370,8 +370,12 @@ async function loadData() {
     try {
         state.products = await core.fetchProducts();
         if (state.account && state.session?.authenticated) {
+            const dashboard = await core.fetchBuyerDashboard();
             state.orders = await core.fetchOrders();
-            state.reviews = await core.fetchReviews();
+            state.reviews = Array.isArray(dashboard.reviews) ? dashboard.reviews : [];
+        } else {
+            state.orders = [];
+            state.reviews = [];
         }
         const balance = await core.fetchContractBalance();
         dom.escrowBalance.textContent = core.formatEth(balance);

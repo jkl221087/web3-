@@ -335,12 +335,22 @@ async function loadAdminState() {
             return;
         }
 
-        state.products = await core.fetchProducts();
-        state.sellers = await core.fetchSellersStore();
-        state.auditLogs = await core.fetchAdminAuditLogs();
+        const dashboard = await core.fetchAdminDashboard();
+        state.products = Array.isArray(dashboard.products) ? dashboard.products.map((record) => ({
+            ...record,
+            priceWei: BigInt(record.priceWei),
+            image: core.buildPlaceholderImage({
+                name: record.name,
+                meta: core.normalizeMeta(record.meta)
+            }),
+            meta: core.normalizeMeta(record.meta),
+            isActive: Boolean(record.isActive)
+        })) : [];
+        state.sellers = dashboard.sellers || { approved: [], pending: [] };
+        state.auditLogs = Array.isArray(dashboard.auditLogs) ? dashboard.auditLogs : [];
         state.orders = core.getConfiguredContractAddress() ? await core.fetchOrders() : [];
-        state.payouts = await core.fetchPayouts();
-        state.reviews = await core.fetchReviews();
+        state.payouts = Array.isArray(dashboard.payouts) ? dashboard.payouts : [];
+        state.reviews = Array.isArray(dashboard.reviews) ? dashboard.reviews : [];
 
         renderMetrics();
         renderSellerRequests();

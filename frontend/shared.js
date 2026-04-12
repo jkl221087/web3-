@@ -444,11 +444,36 @@
         });
     }
 
+    async function fetchAdminDashboard() {
+        return apiRequest("/api/dashboard/admin", {
+            method: "GET"
+        });
+    }
+
+    async function fetchSellerDashboard() {
+        return apiRequest("/api/dashboard/seller", {
+            method: "GET"
+        });
+    }
+
+    async function fetchBuyerDashboard() {
+        return apiRequest("/api/dashboard/buyer", {
+            method: "GET"
+        });
+    }
+
+    async function fetchMyDashboard() {
+        return apiRequest("/api/dashboard/me", {
+            method: "GET"
+        });
+    }
+
     async function saveOrderMeta(orderId, meta) {
         return apiRequest("/api/orders", {
             method: "POST",
             body: JSON.stringify({
                 orderId,
+                buyer: meta.buyer || runtime.currentAccount || "",
                 productId: Number(meta.productId) || 0,
                 productName: meta.productName || "",
                 productSeller: meta.productSeller || "",
@@ -853,6 +878,10 @@
         requestSellerAccess,
         approveSellerAccess,
         fetchAdminAuditLogs,
+        fetchAdminDashboard,
+        fetchSellerDashboard,
+        fetchBuyerDashboard,
+        fetchMyDashboard,
         createMockProduct,
         updateMockProduct,
         setMockProductActive,

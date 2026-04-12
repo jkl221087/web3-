@@ -616,7 +616,14 @@ async function loadData() {
             await core.fetchPaymentTokenMeta();
         }
         state.products = await core.fetchProducts();
-        state.orders = core.getConfiguredContractAddress() ? await core.fetchOrders() : [];
+        if (state.account && core.getConfiguredContractAddress()) {
+            const dashboard = await core.fetchMyDashboard();
+            const allOrders = await core.fetchOrders();
+            const visibleOrderIds = new Set((Array.isArray(dashboard.orders) ? dashboard.orders : []).map((item) => Number(item.orderId)));
+            state.orders = allOrders.filter((order) => visibleOrderIds.has(Number(order.orderId)));
+        } else {
+            state.orders = [];
+        }
         state.reviews = await core.fetchReviews();
         const balance = await core.fetchContractBalance();
         dom.escrowBalance.textContent = core.formatEth(balance);
@@ -683,6 +690,7 @@ async function checkoutCart() {
             }
 
             await core.saveOrderMeta(createdOrderId, {
+                buyer: state.account,
                 productId: item.product.productId,
                 productName: core.buildOrderProductTitle(item.product.name, item.size, item.color),
                 productSeller: item.product.seller,
