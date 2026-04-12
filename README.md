@@ -39,7 +39,7 @@ Frontend (HTML / CSS / JS)
 ├─ Seller Studio
 └─ Admin Center
 
-Local Store API (Rust / Axum + SQLite)
+Local Store API (Java / Spring Boot + SQLite)
 ├─ /api/products
 ├─ /api/sellers
 ├─ /api/orders
@@ -90,15 +90,17 @@ Smart Contract (contracts/project_1.sol)
 npm install
 ```
 
-### 2. Install Rust Toolchain
+### 2. Install Java / Maven
 
-請先安裝 Rust：
+請先確認 Java 與 Maven：
 
 ```powershell
-rustup --version
+java -version
+mvn -version
 ```
 
-如果沒有安裝，可到 <https://rustup.rs/> 安裝。
+目前主後端是 Java Spring Boot。  
+舊 Rust 版本已移到 `legacy/rust` 當 fallback。
 
 ### Admin API Guard
 
@@ -141,10 +143,11 @@ window.APP_CONFIG = {
 npm run frontend
 ```
 
-這個指令現在會啟動 Rust backend server。  
-如果你要切回舊版 Node server 做比對，也可以執行：
+這個指令現在會啟動 Java Spring Boot backend。  
+如果你要切回舊版 Rust 或 Node server 做比對，也可以執行：
 
 ```powershell
+npm run frontend:rust
 npm run frontend:node
 ```
 
@@ -175,7 +178,7 @@ npm run test:contract
 - seller 提領權限
 - 重複提領與不存在訂單的失敗情境
 
-### 7. Send a Test Transaction With Rust
+### 7. Send a Test Transaction With Rust Fallback
 
 如果 `.env` 已經設定好 `RPC_URL` 和 `PRIVATE_KEY`，可以用 Rust 工具送測試交易：
 
@@ -196,11 +199,11 @@ web3-basics/
 ├─ frontend/                # 商店前端頁面、樣式、互動腳本
 ├─ legacy/                  # 舊版保留檔
 │  ├─ frontend/
-│  └─ node/
-├─ src/                     # Rust server 與工具
-│  ├─ main.rs
-│  └─ bin/send_tx.rs
-├─ Cargo.toml
+│  ├─ node/
+│  └─ rust/                 # 舊 Rust backend 與工具
+├─ src/main/java/           # Java Spring Boot 主後端
+├─ src/main/resources/
+├─ pom.xml
 ├─ package.json
 ├─ .env.example
 └─ README.md
@@ -208,19 +211,20 @@ web3-basics/
 
 ## What Stayed Native
 
-不是所有東西都適合硬改成 Rust，這個專案目前保留：
+不是所有東西都適合硬改成 Java，這個專案目前保留：
 
 - Solidity：智能合約本體
 - HTML / CSS / 瀏覽器 JavaScript：商店前端與 DApp 互動
 - Node `solc` CLI：目前仍用來編譯 Solidity 合約
+- Rust fallback：保留在 `legacy/rust` 供比對與回退
 
-這樣的分工比較符合實務，也能避免為了 Rust 化而犧牲維護性。
+這樣的分工比較符合實務，也能避免為了後端換語言而犧牲維護性。
 
 ## Data Layer
 
 - 正式資料來源：`data/store.db`
 - 相容種子資料：`data/*.json`
-- 啟動 Rust server 時，如果 SQLite 還是空的，會自動匯入現有 JSON 內容
+- 啟動本地後端時，如果 SQLite 還是空的，會沿用目前資料層初始化方式
 
 這樣可以在不打斷你目前開發流程的前提下，把商店資料層正式化。
 
@@ -235,14 +239,14 @@ web3-basics/
 ## Tech Stack
 
 - Solidity
-- Rust
-- Axum
-- Tokio
+- Java
+- Spring Boot
 - SQLite
 - Ethers.js v6
 - Vanilla JavaScript
 - HTML / CSS
 - JSON seed files
+- Rust fallback tooling
 
 ## Launch Roadmap
 
