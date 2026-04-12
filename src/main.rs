@@ -4,36 +4,30 @@ use std::{
     net::SocketAddr,
     path::{Component, Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 
+use anyhow::Context;
 use axum::{
     Router,
     body::Body,
-    extract::{Path as AxumPath, State},
+    extract::{Multipart, Path as AxumPath, State},
     http::{HeaderValue, Response, StatusCode, header},
     response::IntoResponse,
     routing::{get, patch, post},
 };
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tokio::{fs, sync::Mutex};
+use tokio::fs;
 
 type AppResult<T> = Result<T, (StatusCode, axum::Json<Value>)>;
 
 #[derive(Clone)]
 struct AppState {
     root: PathBuf,
-    data_files: DataFiles,
-    file_lock: Arc<Mutex<()>>,
-}
-
-#[derive(Clone)]
-struct DataFiles {
-    products: PathBuf,
-    sellers: PathBuf,
-    orders: PathBuf,
-    reviews: PathBuf,
-    payouts: PathBuf,
+    db_path: Arc<PathBuf>,
+    upload_dir: Arc<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -187,6 +181,21 @@ struct CreatePayoutPayload {
     created_at: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+struct UploadResponse {
+    url: String,
+    filename: String,
+}
+
+#[derive(Debug, Clone, Default)]
+struct LegacySeedData {
+    products: Vec<Product>,
+    sellers: SellersStore,
+    orders: BTreeMap<String, OrderRecord>,
+    reviews: Vec<Review>,
+    payouts: Vec<Payout>,
+}
+
 #[tokio::main]
 async fn main() {
     let port = env::var("PORT")
@@ -196,22 +205,25 @@ async fn main() {
 
     let root = env::current_dir().expect("failed to get current directory");
     let data_dir = root.join("data");
-    let data_files = DataFiles {
-        products: data_dir.join("products.json"),
-        sellers: data_dir.join("sellers.json"),
-        orders: data_dir.join("orders.json"),
-        reviews: data_dir.join("reviews.json"),
-        payouts: data_dir.join("payouts.json"),
-    };
+    let db_path = data_dir.join("store.db");
+    let upload_dir = root.join("uploads").join("products");
 
-    ensure_data_files(&data_dir, &data_files)
+    fs::create_dir_all(&data_dir)
         .await
-        .expect("failed to prepare data files");
+        .expect("failed to create data directory");
+    fs::create_dir_all(&upload_dir)
+        .await
+        .expect("failed to create upload directory");
+
+    let legacy_seed = load_legacy_seed_data(&data_dir).await;
+    initialize_database(&db_path, legacy_seed)
+        .await
+        .expect("failed to prepare SQLite database");
 
     let state = AppState {
         root,
-        data_files,
-        file_lock: Arc::new(Mutex::new(())),
+        db_path: Arc::new(db_path),
+        upload_dir: Arc::new(upload_dir),
     };
 
     let app = Router::new()
@@ -224,6 +236,7 @@ async fn main() {
         .route("/api/orders/{id}/flow", patch(update_order_flow))
         .route("/api/reviews", get(get_reviews).post(upsert_review))
         .route("/api/payouts", get(get_payouts).post(upsert_payout))
+        .route("/api/uploads/product-image", post(upload_product_image))
         .route("/", get(serve_root))
         .fallback(get(serve_static))
         .with_state(state);
@@ -239,38 +252,17 @@ async fn main() {
         .expect("failed to start server");
 }
 
-async fn ensure_data_files(data_dir: &Path, data_files: &DataFiles) -> std::io::Result<()> {
-    fs::create_dir_all(data_dir).await?;
-
-    write_default_if_missing(&data_files.products, "[]").await?;
-    write_default_if_missing(
-        &data_files.sellers,
-        &serde_json::to_string_pretty(&SellersStore {
-            approved: Vec::new(),
-            pending: Vec::new(),
-        })
-        .expect("serialize sellers"),
-    )
-    .await?;
-    write_default_if_missing(&data_files.orders, "{}").await?;
-    write_default_if_missing(&data_files.reviews, "[]").await?;
-    write_default_if_missing(&data_files.payouts, "[]").await?;
-
-    Ok(())
-}
-
-async fn write_default_if_missing(path: &Path, contents: &str) -> std::io::Result<()> {
-    if fs::metadata(path).await.is_err() {
-        fs::write(path, contents).await?;
+async fn load_legacy_seed_data(data_dir: &Path) -> LegacySeedData {
+    LegacySeedData {
+        products: load_json_file(&data_dir.join("products.json")).await,
+        sellers: load_json_file(&data_dir.join("sellers.json")).await,
+        orders: load_json_file(&data_dir.join("orders.json")).await,
+        reviews: load_json_file(&data_dir.join("reviews.json")).await,
+        payouts: load_json_file(&data_dir.join("payouts.json")).await,
     }
-    Ok(())
 }
 
-fn json_error(status: StatusCode, message: &str) -> (StatusCode, axum::Json<Value>) {
-    (status, axum::Json(json!({ "error": message })))
-}
-
-async fn read_json_or_default<T>(path: &Path) -> T
+async fn load_json_file<T>(path: &Path) -> T
 where
     T: serde::de::DeserializeOwned + Default,
 {
@@ -280,50 +272,260 @@ where
     }
 }
 
-async fn write_json<T: Serialize>(path: &Path, value: &T) -> AppResult<()> {
-    let payload = serde_json::to_string_pretty(value).map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to serialize JSON",
+async fn initialize_database(db_path: &Path, seed: LegacySeedData) -> anyhow::Result<()> {
+    let db_path = db_path.to_path_buf();
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        let conn = open_connection(&db_path)?;
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS products (
+                product_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                seller TEXT NOT NULL,
+                name TEXT NOT NULL,
+                price_wei TEXT NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                meta_json TEXT NOT NULL DEFAULT '{}'
+            );
+
+            CREATE TABLE IF NOT EXISTS sellers (
+                address TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS orders (
+                order_id INTEGER PRIMARY KEY,
+                product_id INTEGER NOT NULL DEFAULT 0,
+                product_name TEXT NOT NULL DEFAULT '',
+                product_seller TEXT NOT NULL DEFAULT '',
+                price_wei TEXT NOT NULL DEFAULT '0',
+                flow_stage INTEGER NOT NULL DEFAULT 1
+            );
+
+            CREATE TABLE IF NOT EXISTS reviews (
+                order_id INTEGER PRIMARY KEY,
+                product_id INTEGER NOT NULL DEFAULT 0,
+                product_name TEXT NOT NULL DEFAULT '',
+                seller TEXT NOT NULL DEFAULT '',
+                buyer TEXT NOT NULL DEFAULT '',
+                rating INTEGER NOT NULL,
+                comment TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS payouts (
+                order_id INTEGER PRIMARY KEY,
+                seller TEXT NOT NULL DEFAULT '',
+                buyer TEXT NOT NULL DEFAULT '',
+                product_id INTEGER NOT NULL DEFAULT 0,
+                product_name TEXT NOT NULL DEFAULT '',
+                amount_wei TEXT NOT NULL DEFAULT '0',
+                tx_hash TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            );
+            "#,
         )
-    })?;
-    fs::write(path, payload).await.map_err(|_| {
-        json_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to write JSON file",
-        )
-    })?;
+        .context("create sqlite tables")?;
+
+        if table_count(&conn, "products")? == 0 {
+            for product in seed.products {
+                conn.execute(
+                    "INSERT INTO products (product_id, seller, name, price_wei, is_active, meta_json)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![
+                        product.product_id as i64,
+                        product.seller,
+                        product.name,
+                        product.price_wei,
+                        bool_to_int(product.is_active),
+                        serde_json::to_string(&product.meta).unwrap_or_else(|_| "{}".to_string())
+                    ],
+                )
+                .context("seed products")?;
+            }
+        }
+
+        if table_count(&conn, "sellers")? == 0 {
+            let timestamp = now_iso_like();
+            for address in seed.sellers.approved {
+                conn.execute(
+                    "INSERT OR REPLACE INTO sellers (address, status, created_at, updated_at)
+                     VALUES (?1, 'approved', ?2, ?2)",
+                    params![address, timestamp],
+                )
+                .context("seed approved sellers")?;
+            }
+            for address in seed.sellers.pending {
+                conn.execute(
+                    "INSERT OR IGNORE INTO sellers (address, status, created_at, updated_at)
+                     VALUES (?1, 'pending', ?2, ?2)",
+                    params![address, timestamp],
+                )
+                .context("seed pending sellers")?;
+            }
+        }
+
+        if table_count(&conn, "orders")? == 0 {
+            for order in seed.orders.into_values() {
+                conn.execute(
+                    "INSERT INTO orders (order_id, product_id, product_name, product_seller, price_wei, flow_stage)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![
+                        order.order_id as i64,
+                        order.product_id as i64,
+                        order.product_name,
+                        order.product_seller,
+                        order.price_wei,
+                        order.flow_stage as i64
+                    ],
+                )
+                .context("seed orders")?;
+            }
+        }
+
+        if table_count(&conn, "reviews")? == 0 {
+            for review in seed.reviews {
+                conn.execute(
+                    "INSERT INTO reviews (order_id, product_id, product_name, seller, buyer, rating, comment, created_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![
+                        review.order_id as i64,
+                        review.product_id as i64,
+                        review.product_name,
+                        review.seller,
+                        review.buyer,
+                        review.rating as i64,
+                        review.comment,
+                        review.created_at
+                    ],
+                )
+                .context("seed reviews")?;
+            }
+        }
+
+        if table_count(&conn, "payouts")? == 0 {
+            for payout in seed.payouts {
+                conn.execute(
+                    "INSERT INTO payouts (order_id, seller, buyer, product_id, product_name, amount_wei, tx_hash, created_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![
+                        payout.order_id as i64,
+                        payout.seller,
+                        payout.buyer,
+                        payout.product_id as i64,
+                        payout.product_name,
+                        payout.amount_wei,
+                        payout.tx_hash,
+                        payout.created_at
+                    ],
+                )
+                .context("seed payouts")?;
+            }
+        }
+
+        Ok(())
+    })
+    .await
+    .context("join sqlite initialization task")??;
+
     Ok(())
 }
 
+fn table_count(conn: &Connection, table: &str) -> rusqlite::Result<i64> {
+    let sql = format!("SELECT COUNT(*) FROM {table}");
+    conn.query_row(&sql, [], |row| row.get(0))
+}
+
+fn json_error(status: StatusCode, message: &str) -> (StatusCode, axum::Json<Value>) {
+    (status, axum::Json(json!({ "error": message })))
+}
+
+fn log_internal_error(
+    context: &str,
+    error: impl std::fmt::Display,
+) -> (StatusCode, axum::Json<Value>) {
+    eprintln!("{context}: {error}");
+    json_error(StatusCode::INTERNAL_SERVER_ERROR, context)
+}
+
+async fn with_connection<T, F>(state: &AppState, operation: F) -> AppResult<T>
+where
+    T: Send + 'static,
+    F: FnOnce(&Connection) -> AppResult<T> + Send + 'static,
+{
+    let db_path = state.db_path.as_ref().clone();
+    tokio::task::spawn_blocking(move || {
+        let conn = open_connection(&db_path)
+            .map_err(|error| log_internal_error("Failed to open database", error))?;
+        operation(&conn)
+    })
+    .await
+    .map_err(|error| log_internal_error("Database worker failed", error))?
+}
+
+fn open_connection(db_path: &Path) -> anyhow::Result<Connection> {
+    let conn = Connection::open(db_path).with_context(|| format!("open {}", db_path.display()))?;
+    conn.busy_timeout(Duration::from_secs(5))
+        .context("set sqlite busy timeout")?;
+    Ok(conn)
+}
+
 async fn get_products(State(state): State<AppState>) -> impl IntoResponse {
-    let mut products: Vec<Product> = read_json_or_default(&state.data_files.products).await;
-    products.sort_by(|a, b| b.product_id.cmp(&a.product_id));
-    axum::Json(products)
+    match with_connection(&state, |conn| {
+        let mut statement = conn
+            .prepare(
+                "SELECT product_id, seller, name, price_wei, is_active, meta_json
+                 FROM products
+                 ORDER BY product_id DESC",
+            )
+            .map_err(|error| log_internal_error("Failed to load products", error))?;
+        let rows = statement
+            .query_map([], map_product_row)
+            .map_err(|error| log_internal_error("Failed to query products", error))?;
+        let mut products = Vec::new();
+        for row in rows {
+            products.push(
+                row.map_err(|error| log_internal_error("Failed to parse product row", error))?,
+            );
+        }
+        Ok(products)
+    })
+    .await
+    {
+        Ok(products) => axum::Json(products).into_response(),
+        Err(error) => error.into_response(),
+    }
 }
 
 async fn create_product(
     State(state): State<AppState>,
     axum::Json(payload): axum::Json<CreateProduct>,
 ) -> AppResult<impl IntoResponse> {
-    let _guard = state.file_lock.lock().await;
-    let mut products: Vec<Product> = read_json_or_default(&state.data_files.products).await;
-    let next_id = products
-        .iter()
-        .map(|item| item.product_id)
-        .max()
-        .unwrap_or(0)
-        + 1;
-    let product = Product {
-        product_id: next_id,
-        seller: payload.seller,
-        name: payload.name.trim().to_string(),
-        price_wei: payload.price_wei,
-        is_active: true,
-        meta: payload.meta,
-    };
-    products.insert(0, product.clone());
-    write_json(&state.data_files.products, &products).await?;
+    let seller = payload.seller.trim().to_string();
+    let name = payload.name.trim().to_string();
+    if seller.is_empty() || name.is_empty() || payload.price_wei.trim().is_empty() {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Seller, name and price are required",
+        ));
+    }
+
+    let meta_json = serde_json::to_string(&payload.meta)
+        .map_err(|error| log_internal_error("Failed to serialize product meta", error))?;
+    let product = with_connection(&state, move |conn| {
+        conn.execute(
+            "INSERT INTO products (seller, name, price_wei, is_active, meta_json)
+             VALUES (?1, ?2, ?3, 1, ?4)",
+            params![seller, name, payload.price_wei, meta_json],
+        )
+        .map_err(|error| log_internal_error("Failed to create product", error))?;
+        let product_id = conn.last_insert_rowid() as u64;
+        fetch_product_by_id(conn, product_id)?
+            .ok_or_else(|| json_error(StatusCode::INTERNAL_SERVER_ERROR, "Product was not created"))
+    })
+    .await?;
+
     Ok((StatusCode::CREATED, axum::Json(product)))
 }
 
@@ -332,25 +534,34 @@ async fn update_product(
     AxumPath(id): AxumPath<u64>,
     axum::Json(payload): axum::Json<UpdateProduct>,
 ) -> AppResult<impl IntoResponse> {
-    let _guard = state.file_lock.lock().await;
-    let mut products: Vec<Product> = read_json_or_default(&state.data_files.products).await;
+    let product = with_connection(&state, move |conn| {
+        let Some(is_active) = payload.is_active else {
+            return fetch_product_by_id(conn, id)?
+                .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Product not found"));
+        };
 
-    let Some(product) = products.iter_mut().find(|item| item.product_id == id) else {
-        return Err(json_error(StatusCode::NOT_FOUND, "Product not found"));
-    };
+        let updated = conn
+            .execute(
+                "UPDATE products SET is_active = ?1 WHERE product_id = ?2",
+                params![bool_to_int(is_active), id as i64],
+            )
+            .map_err(|error| log_internal_error("Failed to update product", error))?;
+        if updated == 0 {
+            return Err(json_error(StatusCode::NOT_FOUND, "Product not found"));
+        }
+        fetch_product_by_id(conn, id)?
+            .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Product not found"))
+    })
+    .await?;
 
-    if let Some(is_active) = payload.is_active {
-        product.is_active = is_active;
-    }
-
-    let updated = product.clone();
-    write_json(&state.data_files.products, &products).await?;
-    Ok((StatusCode::OK, axum::Json(updated)))
+    Ok((StatusCode::OK, axum::Json(product)))
 }
 
 async fn get_sellers(State(state): State<AppState>) -> impl IntoResponse {
-    let sellers: SellersStore = read_json_or_default(&state.data_files.sellers).await;
-    axum::Json(sellers)
+    match with_connection(&state, |conn| load_sellers_store(conn)).await {
+        Ok(sellers) => axum::Json(sellers).into_response(),
+        Err(error) => error.into_response(),
+    }
 }
 
 async fn request_seller(
@@ -362,15 +573,30 @@ async fn request_seller(
         return Err(json_error(StatusCode::BAD_REQUEST, "Address required"));
     }
 
-    let _guard = state.file_lock.lock().await;
-    let mut sellers: SellersStore = read_json_or_default(&state.data_files.sellers).await;
-    if !contains_ignore_case(&sellers.approved, &address)
-        && !contains_ignore_case(&sellers.pending, &address)
-    {
-        sellers.pending.push(address);
-    }
+    let sellers = with_connection(&state, move |conn| {
+        let current_status = fetch_seller_status(conn, &address)
+            .map_err(|error| log_internal_error("Failed to load seller status", error))?;
 
-    write_json(&state.data_files.sellers, &sellers).await?;
+        if current_status.as_deref() != Some("approved") {
+            let timestamp = now_iso_like();
+            conn.execute(
+                "INSERT INTO sellers (address, status, created_at, updated_at)
+                 VALUES (?1, 'pending', ?2, ?2)
+                 ON CONFLICT(address) DO UPDATE SET
+                     status = CASE
+                         WHEN sellers.status = 'approved' THEN 'approved'
+                         ELSE 'pending'
+                     END,
+                     updated_at = excluded.updated_at",
+                params![address, timestamp],
+            )
+            .map_err(|error| log_internal_error("Failed to request seller access", error))?;
+        }
+
+        load_sellers_store(conn)
+    })
+    .await?;
+
     Ok((StatusCode::OK, axum::Json(sellers)))
 }
 
@@ -384,27 +610,30 @@ async fn approve_seller(
     }
 
     let approved = payload.approved.unwrap_or(true);
-    let _guard = state.file_lock.lock().await;
-    let mut sellers: SellersStore = read_json_or_default(&state.data_files.sellers).await;
+    let sellers = with_connection(&state, move |conn| {
+        let timestamp = now_iso_like();
+        let status = if approved { "approved" } else { "pending" };
+        conn.execute(
+            "INSERT INTO sellers (address, status, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?3)
+             ON CONFLICT(address) DO UPDATE SET
+                 status = excluded.status,
+                 updated_at = excluded.updated_at",
+            params![address, status, timestamp],
+        )
+        .map_err(|error| log_internal_error("Failed to approve seller", error))?;
+        load_sellers_store(conn)
+    })
+    .await?;
 
-    sellers
-        .pending
-        .retain(|item| !eq_ignore_case(item, &address));
-    sellers
-        .approved
-        .retain(|item| !eq_ignore_case(item, &address));
-    if approved {
-        sellers.approved.push(address);
-    }
-
-    write_json(&state.data_files.sellers, &sellers).await?;
     Ok((StatusCode::OK, axum::Json(sellers)))
 }
 
 async fn get_orders(State(state): State<AppState>) -> impl IntoResponse {
-    let orders: BTreeMap<String, OrderRecord> =
-        read_json_or_default(&state.data_files.orders).await;
-    axum::Json(orders)
+    match with_connection(&state, |conn| load_orders(conn)).await {
+        Ok(orders) => axum::Json(orders).into_response(),
+        Err(error) => error.into_response(),
+    }
 }
 
 async fn upsert_order(
@@ -415,22 +644,45 @@ async fn upsert_order(
         return Err(json_error(StatusCode::BAD_REQUEST, "Order ID required"));
     }
 
-    let _guard = state.file_lock.lock().await;
-    let mut orders: BTreeMap<String, OrderRecord> =
-        read_json_or_default(&state.data_files.orders).await;
-    let key = payload.order_id.to_string();
-    let current = orders.get(&key).cloned().unwrap_or_default();
-    let next = OrderRecord {
-        order_id: payload.order_id,
-        product_id: payload.product_id.unwrap_or(current.product_id),
-        product_name: payload.product_name.unwrap_or(current.product_name),
-        product_seller: payload.product_seller.unwrap_or(current.product_seller),
-        price_wei: payload.price_wei.unwrap_or(current.price_wei),
-        flow_stage: payload.flow_stage.unwrap_or(current.flow_stage.max(1)),
-    };
+    let next = with_connection(&state, move |conn| {
+        let current = fetch_order_by_id(conn, payload.order_id)
+            .map_err(|error| log_internal_error("Failed to load order", error))?
+            .unwrap_or_default();
+        let next = OrderRecord {
+            order_id: payload.order_id,
+            product_id: payload.product_id.unwrap_or(current.product_id),
+            product_name: payload.product_name.unwrap_or(current.product_name),
+            product_seller: payload.product_seller.unwrap_or(current.product_seller),
+            price_wei: payload.price_wei.unwrap_or(current.price_wei),
+            flow_stage: payload.flow_stage.unwrap_or(current.flow_stage.max(1)),
+        };
 
-    orders.insert(key, next.clone());
-    write_json(&state.data_files.orders, &orders).await?;
+        conn.execute(
+            "INSERT INTO orders (order_id, product_id, product_name, product_seller, price_wei, flow_stage)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(order_id) DO UPDATE SET
+                 product_id = excluded.product_id,
+                 product_name = excluded.product_name,
+                 product_seller = excluded.product_seller,
+                 price_wei = excluded.price_wei,
+                 flow_stage = excluded.flow_stage",
+            params![
+                next.order_id as i64,
+                next.product_id as i64,
+                next.product_name,
+                next.product_seller,
+                next.price_wei,
+                next.flow_stage as i64
+            ],
+        )
+        .map_err(|error| log_internal_error("Failed to save order", error))?;
+
+        fetch_order_by_id(conn, payload.order_id)
+            .map_err(|error| log_internal_error("Failed to reload order", error))?
+            .ok_or_else(|| json_error(StatusCode::INTERNAL_SERVER_ERROR, "Order was not saved"))
+    })
+    .await?;
+
     Ok((StatusCode::CREATED, axum::Json(next)))
 }
 
@@ -439,24 +691,29 @@ async fn update_order_flow(
     AxumPath(id): AxumPath<u64>,
     axum::Json(payload): axum::Json<UpdateOrderFlowPayload>,
 ) -> AppResult<impl IntoResponse> {
-    let _guard = state.file_lock.lock().await;
-    let mut orders: BTreeMap<String, OrderRecord> =
-        read_json_or_default(&state.data_files.orders).await;
-    let key = id.to_string();
-    let Some(order) = orders.get_mut(&key) else {
-        return Err(json_error(StatusCode::NOT_FOUND, "Order not found"));
-    };
+    let updated = with_connection(&state, move |conn| {
+        let mut current = fetch_order_by_id(conn, id)
+            .map_err(|error| log_internal_error("Failed to load order", error))?
+            .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Order not found"))?;
+        current.flow_stage = payload.flow_stage.unwrap_or(current.flow_stage).clamp(1, 4);
 
-    let stage = payload.flow_stage.unwrap_or(order.flow_stage).clamp(1, 4);
-    order.flow_stage = stage;
-    let updated = order.clone();
-    write_json(&state.data_files.orders, &orders).await?;
+        conn.execute(
+            "UPDATE orders SET flow_stage = ?1 WHERE order_id = ?2",
+            params![current.flow_stage as i64, id as i64],
+        )
+        .map_err(|error| log_internal_error("Failed to update order flow", error))?;
+        Ok(current)
+    })
+    .await?;
+
     Ok((StatusCode::OK, axum::Json(updated)))
 }
 
 async fn get_reviews(State(state): State<AppState>) -> impl IntoResponse {
-    let reviews: Vec<Review> = read_json_or_default(&state.data_files.reviews).await;
-    axum::Json(reviews)
+    match with_connection(&state, |conn| load_reviews(conn)).await {
+        Ok(reviews) => axum::Json(reviews).into_response(),
+        Err(error) => error.into_response(),
+    }
 }
 
 async fn upsert_review(
@@ -470,35 +727,56 @@ async fn upsert_review(
         return Err(json_error(StatusCode::BAD_REQUEST, "Rating required"));
     }
 
-    let _guard = state.file_lock.lock().await;
-    let mut reviews: Vec<Review> = read_json_or_default(&state.data_files.reviews).await;
-    let next = Review {
-        order_id: payload.order_id,
-        product_id: payload.product_id.unwrap_or(0),
-        product_name: payload.product_name.unwrap_or_default(),
-        seller: payload.seller.unwrap_or_default(),
-        buyer: payload.buyer.unwrap_or_default(),
-        rating: payload.rating,
-        comment: payload.comment.unwrap_or_default().trim().to_string(),
-        created_at: payload.created_at.unwrap_or_else(now_iso_like),
-    };
+    let review = with_connection(&state, move |conn| {
+        let next = Review {
+            order_id: payload.order_id,
+            product_id: payload.product_id.unwrap_or(0),
+            product_name: payload.product_name.unwrap_or_default(),
+            seller: payload.seller.unwrap_or_default(),
+            buyer: payload.buyer.unwrap_or_default(),
+            rating: payload.rating,
+            comment: payload.comment.unwrap_or_default().trim().to_string(),
+            created_at: payload.created_at.unwrap_or_else(now_iso_like),
+        };
 
-    if let Some(index) = reviews
-        .iter()
-        .position(|item| item.order_id == payload.order_id)
-    {
-        reviews[index] = next.clone();
-    } else {
-        reviews.insert(0, next.clone());
-    }
+        conn.execute(
+            "INSERT INTO reviews (order_id, product_id, product_name, seller, buyer, rating, comment, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(order_id) DO UPDATE SET
+                 product_id = excluded.product_id,
+                 product_name = excluded.product_name,
+                 seller = excluded.seller,
+                 buyer = excluded.buyer,
+                 rating = excluded.rating,
+                 comment = excluded.comment,
+                 created_at = excluded.created_at",
+            params![
+                next.order_id as i64,
+                next.product_id as i64,
+                next.product_name,
+                next.seller,
+                next.buyer,
+                next.rating as i64,
+                next.comment,
+                next.created_at
+            ],
+        )
+        .map_err(|error| log_internal_error("Failed to save review", error))?;
 
-    write_json(&state.data_files.reviews, &reviews).await?;
-    Ok((StatusCode::CREATED, axum::Json(next)))
+        fetch_review_by_order_id(conn, payload.order_id)
+            .map_err(|error| log_internal_error("Failed to reload review", error))?
+            .ok_or_else(|| json_error(StatusCode::INTERNAL_SERVER_ERROR, "Review was not saved"))
+    })
+    .await?;
+
+    Ok((StatusCode::CREATED, axum::Json(review)))
 }
 
 async fn get_payouts(State(state): State<AppState>) -> impl IntoResponse {
-    let payouts: Vec<Payout> = read_json_or_default(&state.data_files.payouts).await;
-    axum::Json(payouts)
+    match with_connection(&state, |conn| load_payouts(conn)).await {
+        Ok(payouts) => axum::Json(payouts).into_response(),
+        Err(error) => error.into_response(),
+    }
 }
 
 async fn upsert_payout(
@@ -509,30 +787,110 @@ async fn upsert_payout(
         return Err(json_error(StatusCode::BAD_REQUEST, "Order ID required"));
     }
 
-    let _guard = state.file_lock.lock().await;
-    let mut payouts: Vec<Payout> = read_json_or_default(&state.data_files.payouts).await;
-    let next = Payout {
-        order_id: payload.order_id,
-        seller: payload.seller.unwrap_or_default(),
-        buyer: payload.buyer.unwrap_or_default(),
-        product_id: payload.product_id.unwrap_or(0),
-        product_name: payload.product_name.unwrap_or_default(),
-        amount_wei: payload.amount_wei.unwrap_or_else(|| "0".to_string()),
-        tx_hash: payload.tx_hash.unwrap_or_default(),
-        created_at: payload.created_at.unwrap_or_else(now_iso_like),
-    };
+    let payout = with_connection(&state, move |conn| {
+        let next = Payout {
+            order_id: payload.order_id,
+            seller: payload.seller.unwrap_or_default(),
+            buyer: payload.buyer.unwrap_or_default(),
+            product_id: payload.product_id.unwrap_or(0),
+            product_name: payload.product_name.unwrap_or_default(),
+            amount_wei: payload.amount_wei.unwrap_or_else(|| "0".to_string()),
+            tx_hash: payload.tx_hash.unwrap_or_default(),
+            created_at: payload.created_at.unwrap_or_else(now_iso_like),
+        };
 
-    if let Some(index) = payouts
-        .iter()
-        .position(|item| item.order_id == payload.order_id)
+        conn.execute(
+            "INSERT INTO payouts (order_id, seller, buyer, product_id, product_name, amount_wei, tx_hash, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(order_id) DO UPDATE SET
+                 seller = excluded.seller,
+                 buyer = excluded.buyer,
+                 product_id = excluded.product_id,
+                 product_name = excluded.product_name,
+                 amount_wei = excluded.amount_wei,
+                 tx_hash = excluded.tx_hash,
+                 created_at = excluded.created_at",
+            params![
+                next.order_id as i64,
+                next.seller,
+                next.buyer,
+                next.product_id as i64,
+                next.product_name,
+                next.amount_wei,
+                next.tx_hash,
+                next.created_at
+            ],
+        )
+        .map_err(|error| log_internal_error("Failed to save payout", error))?;
+
+        fetch_payout_by_order_id(conn, payload.order_id)
+            .map_err(|error| log_internal_error("Failed to reload payout", error))?
+            .ok_or_else(|| json_error(StatusCode::INTERNAL_SERVER_ERROR, "Payout was not saved"))
+    })
+    .await?;
+
+    Ok((StatusCode::CREATED, axum::Json(payout)))
+}
+
+async fn upload_product_image(
+    State(state): State<AppState>,
+    mut multipart: Multipart,
+) -> AppResult<impl IntoResponse> {
+    const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|error| log_internal_error("Failed to read upload payload", error))?
     {
-        payouts[index] = next.clone();
-    } else {
-        payouts.insert(0, next.clone());
+        if field.name() != Some("image") {
+            continue;
+        }
+
+        let original_filename = field.file_name().unwrap_or("product-image").to_string();
+        let content_type = field
+            .content_type()
+            .unwrap_or("application/octet-stream")
+            .to_string();
+
+        if !content_type.starts_with("image/") {
+            return Err(json_error(StatusCode::BAD_REQUEST, "只能上傳圖片檔案"));
+        }
+
+        let bytes = field
+            .bytes()
+            .await
+            .map_err(|error| log_internal_error("Failed to read uploaded image", error))?;
+
+        if bytes.is_empty() {
+            return Err(json_error(StatusCode::BAD_REQUEST, "圖片內容不能為空"));
+        }
+
+        if bytes.len() > MAX_IMAGE_BYTES {
+            return Err(json_error(StatusCode::BAD_REQUEST, "圖片大小不可超過 5MB"));
+        }
+
+        let extension = infer_upload_extension(&original_filename, &content_type);
+        let filename = format!(
+            "product-{}-{}.{}",
+            chrono::Utc::now().timestamp_millis(),
+            std::process::id(),
+            extension
+        );
+        let path = state.upload_dir.join(&filename);
+
+        fs::write(&path, bytes)
+            .await
+            .map_err(|error| log_internal_error("Failed to save uploaded image", error))?;
+
+        let response = UploadResponse {
+            url: format!("/uploads/products/{filename}"),
+            filename,
+        };
+        return Ok((StatusCode::CREATED, axum::Json(response)));
     }
 
-    write_json(&state.data_files.payouts, &payouts).await?;
-    Ok((StatusCode::CREATED, axum::Json(next)))
+    Err(json_error(StatusCode::BAD_REQUEST, "沒有接收到圖片欄位"))
 }
 
 async fn serve_root(State(state): State<AppState>) -> impl IntoResponse {
@@ -594,12 +952,217 @@ async fn serve_file_response(path: &Path) -> Response<Body> {
     }
 }
 
-fn contains_ignore_case(items: &[String], target: &str) -> bool {
-    items.iter().any(|item| eq_ignore_case(item, target))
+fn map_product_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Product> {
+    let meta_json: String = row.get(5)?;
+    Ok(Product {
+        product_id: row.get::<_, i64>(0)? as u64,
+        seller: row.get(1)?,
+        name: row.get(2)?,
+        price_wei: row.get(3)?,
+        is_active: row.get::<_, i64>(4)? != 0,
+        meta: serde_json::from_str(&meta_json).unwrap_or_else(|_| json!({})),
+    })
 }
 
-fn eq_ignore_case(left: &str, right: &str) -> bool {
-    left.eq_ignore_ascii_case(right)
+fn map_order_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<OrderRecord> {
+    Ok(OrderRecord {
+        order_id: row.get::<_, i64>(0)? as u64,
+        product_id: row.get::<_, i64>(1)? as u64,
+        product_name: row.get(2)?,
+        product_seller: row.get(3)?,
+        price_wei: row.get(4)?,
+        flow_stage: row.get::<_, i64>(5)? as u8,
+    })
+}
+
+fn map_review_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Review> {
+    Ok(Review {
+        order_id: row.get::<_, i64>(0)? as u64,
+        product_id: row.get::<_, i64>(1)? as u64,
+        product_name: row.get(2)?,
+        seller: row.get(3)?,
+        buyer: row.get(4)?,
+        rating: row.get::<_, i64>(5)? as u8,
+        comment: row.get(6)?,
+        created_at: row.get(7)?,
+    })
+}
+
+fn map_payout_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Payout> {
+    Ok(Payout {
+        order_id: row.get::<_, i64>(0)? as u64,
+        seller: row.get(1)?,
+        buyer: row.get(2)?,
+        product_id: row.get::<_, i64>(3)? as u64,
+        product_name: row.get(4)?,
+        amount_wei: row.get(5)?,
+        tx_hash: row.get(6)?,
+        created_at: row.get(7)?,
+    })
+}
+
+fn fetch_product_by_id(conn: &Connection, product_id: u64) -> AppResult<Option<Product>> {
+    conn.query_row(
+        "SELECT product_id, seller, name, price_wei, is_active, meta_json
+         FROM products
+         WHERE product_id = ?1",
+        params![product_id as i64],
+        map_product_row,
+    )
+    .optional()
+    .map_err(|error| log_internal_error("Failed to query product", error))
+}
+
+fn fetch_seller_status(conn: &Connection, address: &str) -> rusqlite::Result<Option<String>> {
+    conn.query_row(
+        "SELECT status FROM sellers WHERE lower(address) = lower(?1)",
+        params![address],
+        |row| row.get(0),
+    )
+    .optional()
+}
+
+fn load_sellers_store(conn: &Connection) -> AppResult<SellersStore> {
+    let mut statement = conn
+        .prepare("SELECT address, status FROM sellers ORDER BY updated_at DESC, address ASC")
+        .map_err(|error| log_internal_error("Failed to load sellers", error))?;
+    let rows = statement
+        .query_map([], |row| {
+            let address: String = row.get(0)?;
+            let status: String = row.get(1)?;
+            Ok((address, status))
+        })
+        .map_err(|error| log_internal_error("Failed to query sellers", error))?;
+
+    let mut approved = Vec::new();
+    let mut pending = Vec::new();
+    for row in rows {
+        let (address, status) =
+            row.map_err(|error| log_internal_error("Failed to parse seller row", error))?;
+        match status.as_str() {
+            "approved" => approved.push(address),
+            "pending" => pending.push(address),
+            _ => {}
+        }
+    }
+
+    Ok(SellersStore { approved, pending })
+}
+
+fn fetch_order_by_id(conn: &Connection, order_id: u64) -> rusqlite::Result<Option<OrderRecord>> {
+    conn.query_row(
+        "SELECT order_id, product_id, product_name, product_seller, price_wei, flow_stage
+         FROM orders
+         WHERE order_id = ?1",
+        params![order_id as i64],
+        map_order_row,
+    )
+    .optional()
+}
+
+fn load_orders(conn: &Connection) -> AppResult<BTreeMap<String, OrderRecord>> {
+    let mut statement = conn
+        .prepare(
+            "SELECT order_id, product_id, product_name, product_seller, price_wei, flow_stage
+             FROM orders
+             ORDER BY order_id DESC",
+        )
+        .map_err(|error| log_internal_error("Failed to load orders", error))?;
+    let rows = statement
+        .query_map([], map_order_row)
+        .map_err(|error| log_internal_error("Failed to query orders", error))?;
+
+    let mut orders = BTreeMap::new();
+    for row in rows {
+        let order = row.map_err(|error| log_internal_error("Failed to parse order row", error))?;
+        orders.insert(order.order_id.to_string(), order);
+    }
+    Ok(orders)
+}
+
+fn fetch_review_by_order_id(conn: &Connection, order_id: u64) -> rusqlite::Result<Option<Review>> {
+    conn.query_row(
+        "SELECT order_id, product_id, product_name, seller, buyer, rating, comment, created_at
+         FROM reviews
+         WHERE order_id = ?1",
+        params![order_id as i64],
+        map_review_row,
+    )
+    .optional()
+}
+
+fn load_reviews(conn: &Connection) -> AppResult<Vec<Review>> {
+    let mut statement = conn
+        .prepare(
+            "SELECT order_id, product_id, product_name, seller, buyer, rating, comment, created_at
+             FROM reviews
+             ORDER BY datetime(created_at) DESC, order_id DESC",
+        )
+        .map_err(|error| log_internal_error("Failed to load reviews", error))?;
+    let rows = statement
+        .query_map([], map_review_row)
+        .map_err(|error| log_internal_error("Failed to query reviews", error))?;
+
+    let mut reviews = Vec::new();
+    for row in rows {
+        reviews.push(row.map_err(|error| log_internal_error("Failed to parse review row", error))?);
+    }
+    Ok(reviews)
+}
+
+fn fetch_payout_by_order_id(conn: &Connection, order_id: u64) -> rusqlite::Result<Option<Payout>> {
+    conn.query_row(
+        "SELECT order_id, seller, buyer, product_id, product_name, amount_wei, tx_hash, created_at
+         FROM payouts
+         WHERE order_id = ?1",
+        params![order_id as i64],
+        map_payout_row,
+    )
+    .optional()
+}
+
+fn load_payouts(conn: &Connection) -> AppResult<Vec<Payout>> {
+    let mut statement = conn
+        .prepare(
+            "SELECT order_id, seller, buyer, product_id, product_name, amount_wei, tx_hash, created_at
+             FROM payouts
+             ORDER BY datetime(created_at) DESC, order_id DESC",
+        )
+        .map_err(|error| log_internal_error("Failed to load payouts", error))?;
+    let rows = statement
+        .query_map([], map_payout_row)
+        .map_err(|error| log_internal_error("Failed to query payouts", error))?;
+
+    let mut payouts = Vec::new();
+    for row in rows {
+        payouts.push(row.map_err(|error| log_internal_error("Failed to parse payout row", error))?);
+    }
+    Ok(payouts)
+}
+
+fn bool_to_int(value: bool) -> i64 {
+    if value { 1 } else { 0 }
+}
+
+fn infer_upload_extension(filename: &str, content_type: &str) -> &'static str {
+    let lower = filename.to_ascii_lowercase();
+    if lower.ends_with(".png") {
+        "png"
+    } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+        "jpg"
+    } else if lower.ends_with(".webp") {
+        "webp"
+    } else if lower.ends_with(".gif") {
+        "gif"
+    } else if content_type == "image/png" {
+        "png"
+    } else if content_type == "image/webp" {
+        "webp"
+    } else if content_type == "image/gif" {
+        "gif"
+    } else {
+        "jpg"
+    }
 }
 
 fn now_iso_like() -> String {

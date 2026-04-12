@@ -10,6 +10,12 @@ const dom = {
     detailProductId: document.getElementById("detailProductId"),
     detailSeller: document.getElementById("detailSeller"),
     detailWallet: document.getElementById("detailWallet"),
+    detailSizes: document.getElementById("detailSizes"),
+    detailColors: document.getElementById("detailColors"),
+    detailStock: document.getElementById("detailStock"),
+    detailSizeSelect: document.getElementById("detailSizeSelect"),
+    detailColorSelect: document.getElementById("detailColorSelect"),
+    detailQuantityInput: document.getElementById("detailQuantityInput"),
     detailSellerReviewSummary: document.getElementById("detailSellerReviewSummary"),
     detailSellerReviewList: document.getElementById("detailSellerReviewList"),
     detailAddCartButton: document.getElementById("detailAddCartButton"),
@@ -22,7 +28,9 @@ const state = {
     account: null,
     products: [],
     currentProduct: null,
-    reviews: []
+    reviews: [],
+    selectedSize: "",
+    selectedColor: ""
 };
 
 function toast(type, message) {
@@ -61,13 +69,33 @@ function renderCurrentProduct() {
     dom.detailProductId.textContent = `#${product.productId}`;
     dom.detailSeller.textContent = core.formatAddress(product.seller);
     dom.detailWallet.textContent = state.account ? core.formatAddress(state.account) : "尚未連接";
+    dom.detailSizes.textContent = product.meta.sizes.join(" / ");
+    dom.detailColors.textContent = product.meta.colors.join(" / ");
+    dom.detailStock.textContent = `${product.meta.stock}`;
     dom.detailFavoriteButton.textContent = core.isFavoriteProduct(product.productId) ? "移除收藏" : "加入收藏";
+    dom.detailAddCartButton.disabled = !product.isActive || Number(product.meta.stock || 0) <= 0;
+    dom.detailAddCartButton.textContent = !product.isActive ? "商品已下架" : (Number(product.meta.stock || 0) <= 0 ? "目前缺貨中" : "加入購物車");
     dom.detailTags.innerHTML = `
         <span class="tag-pill">${product.meta.mainCategory}</span>
         <span class="tag-pill">${product.meta.department}</span>
         <span class="tag-pill">${product.meta.season}</span>
         <span class="tag-pill">${product.meta.style}</span>
+        <span class="tag-pill">庫存 ${product.meta.stock}</span>
     `;
+
+    dom.detailSizeSelect.innerHTML = product.meta.sizes
+        .map((size) => `<option value="${size}">${size}</option>`)
+        .join("");
+    dom.detailColorSelect.innerHTML = product.meta.colors
+        .map((color) => `<option value="${color}">${color}</option>`)
+        .join("");
+
+    state.selectedSize = product.meta.sizes.includes(state.selectedSize) ? state.selectedSize : product.meta.sizes[0];
+    state.selectedColor = product.meta.colors.includes(state.selectedColor) ? state.selectedColor : product.meta.colors[0];
+    dom.detailSizeSelect.value = state.selectedSize;
+    dom.detailColorSelect.value = state.selectedColor;
+    dom.detailQuantityInput.max = String(Math.max(1, Number(product.meta.stock || 1)));
+    dom.detailQuantityInput.value = String(Math.min(Number(dom.detailQuantityInput.value || 1), Math.max(1, Number(product.meta.stock || 1))));
 
     renderSellerReputation();
 }
@@ -151,17 +179,28 @@ function addCurrentProductToCart() {
         toast("error", "這件商品目前已下架，不能加入購物車。");
         return;
     }
+    if (Number(state.currentProduct.meta.stock || 0) <= 0) {
+        toast("error", "這件商品目前缺貨中，暫時不能加入購物車。");
+        return;
+    }
 
+    const quantity = Math.max(1, Math.min(Number(dom.detailQuantityInput.value || 1), Number(state.currentProduct.meta.stock || 1)));
+    const size = dom.detailSizeSelect.value || state.currentProduct.meta.sizes[0] || "";
+    const color = dom.detailColorSelect.value || state.currentProduct.meta.colors[0] || "";
     const cart = core.getCart();
-    const existing = cart.find((item) => item.productId === state.currentProduct.productId);
+    const existing = cart.find((item) =>
+        item.productId === state.currentProduct.productId &&
+        item.size === size &&
+        item.color === color
+    );
     if (existing) {
-        existing.quantity += 1;
+        existing.quantity = Math.min(existing.quantity + quantity, Number(state.currentProduct.meta.stock || existing.quantity + quantity));
     } else {
-        cart.push({ productId: state.currentProduct.productId, quantity: 1 });
+        cart.push({ productId: state.currentProduct.productId, quantity, size, color });
     }
 
     core.saveCart(cart);
-    toast("success", "商品已加入購物車");
+    toast("success", `${state.currentProduct.name} 已加入購物車`);
 }
 
 function toggleCurrentProductFavorite() {
@@ -200,5 +239,11 @@ dom.connectButton.addEventListener("click", async () => {
 
 dom.detailAddCartButton.addEventListener("click", addCurrentProductToCart);
 dom.detailFavoriteButton.addEventListener("click", toggleCurrentProductFavorite);
+dom.detailSizeSelect.addEventListener("change", (event) => {
+    state.selectedSize = event.target.value;
+});
+dom.detailColorSelect.addEventListener("change", (event) => {
+    state.selectedColor = event.target.value;
+});
 
 hydrate().catch((error) => toast("error", normalizeError(error)));

@@ -14,7 +14,8 @@
 - 買家中心：訂單查詢、收貨確認、收藏、最近瀏覽、評價紀錄
 - 賣家中心：物流節點更新、評論口碑、提領歷史、月報表
 - 賣家後台：商品建立、上下架、賣家資格申請
-- 本地 JSON API：商品、賣家、訂單 metadata、評論、提領歷史
+- 賣家後台：商品建立、上下架、賣家資格申請、網站內圖片上傳
+- 本地 Store API：商品、賣家、訂單 metadata、評論、提領歷史
 - Sepolia Escrow 合約：付款、確認收貨、提領
 
 ## Why This Project
@@ -36,7 +37,7 @@ Frontend (HTML / CSS / JS)
 ├─ Seller Center
 └─ Seller Studio
 
-Local JSON API (Rust / Axum)
+Local Store API (Rust / Axum + SQLite)
 ├─ /api/products
 ├─ /api/sellers
 ├─ /api/orders
@@ -152,7 +153,7 @@ web3-basics/
 ├─ contracts/               # Solidity 合約來源
 │  ├─ project_1.sol
 │  └─ experimental/         # 舊版 / 測試合約
-├─ data/                    # 本地 JSON 資料
+├─ data/                    # JSON 種子資料與本地 SQLite
 ├─ frontend/                # 商店前端頁面、樣式、互動腳本
 ├─ legacy/                  # 舊版保留檔
 │  ├─ frontend/
@@ -176,6 +177,14 @@ web3-basics/
 
 這樣的分工比較符合實務，也能避免為了 Rust 化而犧牲維護性。
 
+## Data Layer
+
+- 正式資料來源：`data/store.db`
+- 相容種子資料：`data/*.json`
+- 啟動 Rust server 時，如果 SQLite 還是空的，會自動匯入現有 JSON 內容
+
+這樣可以在不打斷你目前開發流程的前提下，把商店資料層正式化。
+
 ## Security Notes
 
 - `.env` 已被 `.gitignore` 排除，不會提交到 GitHub
@@ -190,10 +199,11 @@ web3-basics/
 - Rust
 - Axum
 - Tokio
+- SQLite
 - Ethers.js v6
 - Vanilla JavaScript
 - HTML / CSS
-- JSON file storage
+- JSON seed files
 
 ## Next Steps
 

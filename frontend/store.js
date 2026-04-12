@@ -158,11 +158,12 @@ function renderCatalog() {
             <div>
                 <h3>${product.name}</h3>
                 <p>${product.meta.description || `${product.meta.style} / ${product.meta.season} / ${core.formatAddress(product.seller)}`}</p>
+                <p>尺寸：${product.meta.sizes.join(" / ")} ・ 顏色：${product.meta.colors.join(" / ")} ・ 庫存：${product.meta.stock}</p>
             </div>
             <div class="price-row">
                 <strong>${core.formatEth(product.priceWei)}</strong>
-                <button class="button primary" data-action="add-to-cart" data-product-id="${product.productId}" type="button" ${product.isActive ? "" : "disabled"}>
-                    ${product.isActive ? "加入購物車" : "已下架"}
+                <button class="button primary" data-action="add-to-cart" data-product-id="${product.productId}" type="button" ${product.isActive && product.meta.stock > 0 ? "" : "disabled"}>
+                    ${product.isActive ? (product.meta.stock > 0 ? "加入購物車" : "已缺貨") : "已下架"}
                 </button>
             </div>
         `;
@@ -190,6 +191,7 @@ function renderCompactRecommendations(target, products, emptyTitle, emptyDescrip
                 </div>
                 <h3>${product.name}</h3>
                 <p>${product.meta.description || `${product.meta.style} / ${core.formatAddress(product.seller)}`}</p>
+                <p>尺寸：${product.meta.sizes.join(" / ")} ・ 庫存：${product.meta.stock}</p>
                 ${extraBuilder(product)}
                 <div class="price-row">
                     <strong>${core.formatEth(product.priceWei)}</strong>
@@ -262,7 +264,14 @@ function getCartDetailedItems() {
         .map((entry) => {
             const product = state.products.find((item) => item.productId === entry.productId);
             if (!product) return null;
-            return { ...entry, product, totalWei: product.priceWei * BigInt(entry.quantity) };
+            const variantLabel = core.formatVariantLabel(entry.size, entry.color);
+            return {
+                ...entry,
+                entryKey: core.buildCartEntryKey(entry),
+                variantLabel,
+                product,
+                totalWei: product.priceWei * BigInt(entry.quantity)
+            };
         })
         .filter(Boolean);
 }
@@ -288,19 +297,22 @@ function renderCart() {
         card.innerHTML = `
             <div class="cart-row">
                 <strong>${item.product.name}</strong>
-                <button class="icon-button" data-action="remove-from-cart" data-product-id="${item.product.productId}" type="button">×</button>
+                <button class="icon-button" data-action="remove-from-cart" data-entry-key="${item.entryKey}" type="button">×</button>
             </div>
             <div class="detail-tags">
                 <span class="tag-pill">${item.product.meta.department}</span>
                 <span class="tag-pill">${item.product.meta.season}</span>
+                ${item.size ? `<span class="tag-pill">${item.size}</span>` : ""}
+                ${item.color ? `<span class="tag-pill">${item.color}</span>` : ""}
             </div>
             <div class="cart-row">
                 <span>數量 ${item.quantity}</span>
                 <strong>${core.formatEth(item.totalWei)}</strong>
             </div>
+            <p>${item.variantLabel || "預設規格"}</p>
             <div class="detail-actions">
-                <button class="button ghost" data-action="decrease-qty" data-product-id="${item.product.productId}" type="button">-1</button>
-                <button class="button ghost" data-action="increase-qty" data-product-id="${item.product.productId}" type="button">+1</button>
+                <button class="button ghost" data-action="decrease-qty" data-entry-key="${item.entryKey}" type="button">-1</button>
+                <button class="button ghost" data-action="increase-qty" data-entry-key="${item.entryKey}" type="button">+1</button>
             </div>
         `;
         dom.cartItems.append(card);
@@ -515,24 +527,46 @@ function syncCart() {
     renderCart();
 }
 
-function addToCart(productId) {
-    const existing = state.cart.find((item) => item.productId === productId);
+function addToCart(productId, options = {}) {
+    const product = state.products.find((item) => item.productId === productId);
+    if (!product) return;
+    if (!product.isActive) {
+        toast("error", "這件商品目前已下架。");
+        return;
+    }
+    if (Number(product.meta.stock || 0) <= 0) {
+        toast("error", "這件商品目前缺貨中。");
+        return;
+    }
+
+    const size = options.size || product.meta.sizes[0] || "";
+    const color = options.color || product.meta.colors[0] || "";
+    const quantity = Math.max(1, Number(options.quantity) || 1);
+    const existing = state.cart.find((item) =>
+        item.productId === productId &&
+        item.size === size &&
+        item.color === color
+    );
     if (existing) {
-        existing.quantity += 1;
+        existing.quantity = Math.min(existing.quantity + quantity, Number(product.meta.stock || existing.quantity + quantity));
     } else {
-        state.cart.push({ productId, quantity: 1 });
+        state.cart.push({ productId, quantity: Math.min(quantity, Number(product.meta.stock || quantity)), size, color });
     }
     syncCart();
     toast("success", "已加入購物車");
 }
 
-function updateCartQuantity(productId, delta) {
-    const item = state.cart.find((entry) => entry.productId === productId);
+function updateCartQuantity(entryKey, delta) {
+    const item = state.cart.find((entry) => core.buildCartEntryKey(entry) === entryKey);
     if (!item) return;
+    const product = state.products.find((entry) => entry.productId === item.productId);
 
     item.quantity += delta;
+    if (product) {
+        item.quantity = Math.min(item.quantity, Number(product.meta.stock || item.quantity));
+    }
     if (item.quantity <= 0) {
-        state.cart = state.cart.filter((entry) => entry.productId !== productId);
+        state.cart = state.cart.filter((entry) => core.buildCartEntryKey(entry) !== entryKey);
     }
     syncCart();
 }
@@ -597,7 +631,7 @@ async function checkoutCart() {
 
             await core.saveOrderMeta(createdOrderId, {
                 productId: item.product.productId,
-                productName: item.product.name,
+                productName: core.buildOrderProductTitle(item.product.name, item.size, item.color),
                 productSeller: item.product.seller,
                 priceWei: item.product.priceWei,
                 flowStage: 1
@@ -619,9 +653,9 @@ async function handleActionClick(event) {
     try {
         const action = trigger.dataset.action;
         if (action === "add-to-cart") addToCart(Number(trigger.dataset.productId));
-        if (action === "remove-from-cart") updateCartQuantity(Number(trigger.dataset.productId), -999);
-        if (action === "increase-qty") updateCartQuantity(Number(trigger.dataset.productId), 1);
-        if (action === "decrease-qty") updateCartQuantity(Number(trigger.dataset.productId), -1);
+        if (action === "remove-from-cart") updateCartQuantity(trigger.dataset.entryKey, -999);
+        if (action === "increase-qty") updateCartQuantity(trigger.dataset.entryKey, 1);
+        if (action === "decrease-qty") updateCartQuantity(trigger.dataset.entryKey, -1);
         if (action === "toggle-order-detail") {
             toggleExpandedOrder(Number(trigger.dataset.orderId));
             renderOrders();

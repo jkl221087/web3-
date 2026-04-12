@@ -21,7 +21,12 @@ const dom = {
     departmentSelect: document.getElementById("departmentSelect"),
     seasonSelect: document.getElementById("seasonSelect"),
     styleSelect: document.getElementById("styleSelect"),
+    sizesInput: document.getElementById("sizesInput"),
+    colorsInput: document.getElementById("colorsInput"),
+    stockInput: document.getElementById("stockInput"),
+    imageFileInput: document.getElementById("imageFileInput"),
     imageUrlInput: document.getElementById("imageUrlInput"),
+    imageUploadStatus: document.getElementById("imageUploadStatus"),
     descriptionInput: document.getElementById("descriptionInput"),
     previewImage: document.getElementById("previewImage"),
     previewDepartment: document.getElementById("previewDepartment"),
@@ -29,6 +34,8 @@ const dom = {
     previewStyle: document.getElementById("previewStyle"),
     previewName: document.getElementById("previewName"),
     previewDescription: document.getElementById("previewDescription"),
+    previewStock: document.getElementById("previewStock"),
+    previewOptions: document.getElementById("previewOptions"),
     refreshInventoryButton: document.getElementById("refreshInventoryButton"),
     inventoryGrid: document.getElementById("inventoryGrid"),
     toastStack: document.getElementById("toastStack")
@@ -38,7 +45,8 @@ const state = {
     account: null,
     products: [],
     sellerProfile: { approved: false, pending: false, isContractOwner: false },
-    sellerRequests: []
+    sellerRequests: [],
+    imageUploading: false
 };
 
 function toast(type, message) {
@@ -59,6 +67,9 @@ function buildPreviewMeta() {
         department: dom.departmentSelect.value,
         season: dom.seasonSelect.value,
         style: dom.styleSelect.value,
+        sizes: dom.sizesInput.value,
+        colors: dom.colorsInput.value,
+        stock: dom.stockInput.value,
         imageUrl: dom.imageUrlInput.value,
         description: dom.descriptionInput.value
     });
@@ -76,7 +87,26 @@ function renderPreview() {
     dom.previewStyle.textContent = meta.style;
     dom.previewName.textContent = product.name;
     dom.previewDescription.textContent = meta.description || "上架後這張卡片會像商店前台一樣顯示分類、季節與敘述。";
+    dom.previewStock.textContent = `可售庫存：${meta.stock}`;
+    dom.previewOptions.textContent = `尺寸：${meta.sizes.join(" / ")} ・ 顏色：${meta.colors.join(" / ")}`;
     dom.previewImage.src = core.buildPlaceholderImage(product);
+}
+
+function applyDefaultVariantInputs() {
+    if (!dom.sizesInput.value.trim()) {
+        dom.sizesInput.value = "S,M,L";
+    }
+    if (!dom.colorsInput.value.trim()) {
+        dom.colorsInput.value = "奶油白";
+    }
+    if (!dom.stockInput.value.trim()) {
+        dom.stockInput.value = "12";
+    }
+}
+
+function setUploadStatus(message, tone = "neutral") {
+    dom.imageUploadStatus.textContent = message;
+    dom.imageUploadStatus.className = tone === "neutral" ? "upload-note" : `upload-note ${tone}`;
 }
 
 function setSellerGate(status) {
@@ -199,6 +229,7 @@ function renderInventory() {
                 <span class="tag-pill">${product.isActive ? "販售中" : "已下架"}</span>
             </div>
             <p>${product.meta.description || `${product.meta.style} / ${core.formatEth(product.priceWei)}`}</p>
+            <p>尺寸：${product.meta.sizes.join(" / ")} ・ 顏色：${product.meta.colors.join(" / ")} ・ 庫存：${product.meta.stock}</p>
             <div class="price-row">
                 <strong>${core.formatEth(product.priceWei)}</strong>
                 <div class="detail-actions">
@@ -256,6 +287,11 @@ async function createProduct(event) {
         return;
     }
 
+    if (state.imageUploading) {
+        toast("error", "圖片仍在上傳中，請稍候");
+        return;
+    }
+
     try {
         const product = await core.createMockProduct({
             seller: state.account,
@@ -265,6 +301,8 @@ async function createProduct(event) {
         });
 
         dom.createProductForm.reset();
+        applyDefaultVariantInputs();
+        setUploadStatus("可直接在網站上選圖上傳，或改用下方圖片網址。");
         renderPreview();
         await loadInventory();
         toast("success", `商品已建立，商品 ID：${product.productId}`);
@@ -299,6 +337,34 @@ async function requestSellerAccess() {
     toast("success", "已送出賣家資格申請，這一步不需要鏈上交易");
 }
 
+async function uploadImage(file) {
+    if (!file) {
+        return;
+    }
+
+    if (!state.sellerProfile.approved) {
+        toast("error", "請先通過賣家審核，再上傳商品圖片");
+        dom.imageFileInput.value = "";
+        return;
+    }
+
+    state.imageUploading = true;
+    setUploadStatus(`正在上傳 ${file.name}...`);
+
+    try {
+        const result = await core.uploadProductImage(file);
+        dom.imageUrlInput.value = result.url;
+        setUploadStatus("圖片上傳成功，已自動套用到商品。", "success");
+        renderPreview();
+        toast("success", "商品圖片已上傳");
+    } catch (error) {
+        setUploadStatus(normalizeError(error), "error");
+        toast("error", normalizeError(error));
+    } finally {
+        state.imageUploading = false;
+    }
+}
+
 async function approveSeller(address) {
     if (!state.sellerProfile.isContractOwner) {
         toast("error", "只有 owner 可以審核賣家");
@@ -316,6 +382,7 @@ async function hydrate() {
     dom.walletAddress.textContent = state.account ? core.formatAddress(state.account) : "尚未連接";
     const contractAddress = core.getConfiguredContractAddress();
     dom.contractAddressLabel.textContent = contractAddress ? core.formatAddress(contractAddress) : "未設定";
+    applyDefaultVariantInputs();
     renderPreview();
     renderAccessState();
     renderSellerRequests();
@@ -339,6 +406,14 @@ dom.refreshInventoryButton.addEventListener("click", loadInventory);
 
 [dom.productName, dom.productPrice, dom.departmentSelect, dom.seasonSelect, dom.styleSelect, dom.imageUrlInput, dom.descriptionInput]
     .forEach((element) => element.addEventListener("input", renderPreview));
+
+[dom.sizesInput, dom.colorsInput, dom.stockInput]
+    .forEach((element) => element.addEventListener("input", renderPreview));
+
+dom.imageFileInput.addEventListener("change", async () => {
+    const file = dom.imageFileInput.files?.[0];
+    await uploadImage(file);
+});
 
 dom.createProductForm.addEventListener("submit", createProduct);
 

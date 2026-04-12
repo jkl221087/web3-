@@ -10,6 +10,9 @@ yarn-error.log*
 pnpm-debug.log*
 artifacts/contracts/*.bin
 artifacts/contracts/*.abi
+data/store.db
+data/store.db-*
+uploads/products/*
 target/
 dist/
 coverage/

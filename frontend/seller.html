@@ -94,6 +94,20 @@
             background: linear-gradient(135deg, #2d6cdf 0%, #7ba9ff 100%);
         }
 
+        .upload-note {
+            margin-top: -8px;
+            font-size: 13px;
+            color: rgba(23, 48, 74, 0.72);
+        }
+
+        .upload-note.success {
+            color: #177245;
+        }
+
+        .upload-note.error {
+            color: #b13b36;
+        }
+
         .brand,
         .nav-links a {
             color: inherit;
@@ -233,6 +247,23 @@
                                 </select>
                             </label>
                             <label class="field">
+                                <span>尺寸選項</span>
+                                <input id="sizesInput" type="text" placeholder="例如：XS,S,M,L" />
+                            </label>
+                            <label class="field">
+                                <span>顏色選項</span>
+                                <input id="colorsInput" type="text" placeholder="例如：奶油白,霧灰藍,炭黑" />
+                            </label>
+                            <label class="field">
+                                <span>可售庫存</span>
+                                <input id="stockInput" type="number" min="0" step="1" value="12" />
+                            </label>
+                            <label class="field">
+                                <span>上傳商品圖片</span>
+                                <input id="imageFileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+                            </label>
+                            <p id="imageUploadStatus" class="upload-note">可直接在網站上選圖上傳，或改用下方圖片網址。</p>
+                            <label class="field">
                                 <span>圖片網址</span>
                                 <input id="imageUrlInput" type="text" placeholder="可留空，系統會自動產生服裝視覺圖" />
                             </label>
@@ -261,6 +292,8 @@
                                 </div>
                                 <h3 id="previewName">服裝商品預覽</h3>
                                 <p id="previewDescription">上架後，這張卡片會像前台商品一樣顯示圖片、分類與敘述。</p>
+                                <p id="previewStock" class="upload-note">可售庫存：12</p>
+                                <p id="previewOptions" class="upload-note">尺寸：S / M / L ・ 顏色：奶油白</p>
                             </div>
                         </div>
                     </article>

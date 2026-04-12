@@ -6,11 +6,12 @@ default-run = "web3_basics"
 
 [dependencies]
 anyhow = "1.0"
-axum = "0.8"
+axum = { version = "0.8", features = ["multipart"] }
 chrono = { version = "0.4", features = ["clock"] }
 dotenv = "0.15"
 ethers = "2.0"
 mime_guess = "2.0"
+rusqlite = { version = "0.37", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.48", features = ["full"] }

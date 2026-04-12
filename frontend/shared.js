@@ -66,11 +66,14 @@
     }
 
     async function apiRequest(path, options = {}) {
+        const headers = new window.Headers(options.headers || {});
+        if (!(options.body instanceof window.FormData) && !headers.has("Content-Type")) {
+            headers.set("Content-Type", "application/json");
+        }
+
         const response = await window.fetch(path, {
-            headers: {
-                "Content-Type": "application/json"
-            },
-            ...options
+            ...options,
+            headers
         });
 
         if (!response.ok) {
@@ -101,13 +104,34 @@
     }
 
     function normalizeMeta(meta) {
+        const toList = (value, fallback) => {
+            if (Array.isArray(value)) {
+                const cleaned = value.map((item) => String(item).trim()).filter(Boolean);
+                return cleaned.length ? [...new Set(cleaned)] : fallback;
+            }
+
+            if (typeof value === "string") {
+                const cleaned = value
+                    .split(",")
+                    .map((item) => item.trim())
+                    .filter(Boolean);
+                return cleaned.length ? [...new Set(cleaned)] : fallback;
+            }
+
+            return fallback;
+        };
+
+        const stock = Number(meta?.stock);
         return {
             mainCategory: "服裝",
             department: DEPARTMENT_OPTIONS.includes(meta?.department) ? meta.department : "女裝",
             season: SEASON_OPTIONS.includes(meta?.season) ? meta.season : "四季",
             style: STYLE_OPTIONS.includes(meta?.style) ? meta.style : "上衣",
             imageUrl: meta?.imageUrl?.trim() || "",
-            description: meta?.description?.trim() || ""
+            description: meta?.description?.trim() || "",
+            sizes: toList(meta?.sizes, ["S", "M", "L"]),
+            colors: toList(meta?.colors, ["奶油白"]),
+            stock: Number.isFinite(stock) && stock >= 0 ? Math.floor(stock) : 1
         };
     }
 
@@ -119,13 +143,41 @@
         return normalizeMeta({ department, season, style });
     }
 
+    function normalizeCartEntry(entry) {
+        return {
+            productId: Number(entry?.productId) || 0,
+            quantity: Math.max(1, Number(entry?.quantity) || 1),
+            size: String(entry?.size || "").trim(),
+            color: String(entry?.color || "").trim()
+        };
+    }
+
     function getCart() {
         const cart = parseJson(CART_KEY, []);
-        return Array.isArray(cart) ? cart : [];
+        return Array.isArray(cart)
+            ? cart.map((entry) => normalizeCartEntry(entry)).filter((entry) => entry.productId > 0)
+            : [];
     }
 
     function saveCart(cart) {
-        writeJson(CART_KEY, cart);
+        writeJson(CART_KEY, cart.map((entry) => normalizeCartEntry(entry)));
+    }
+
+    function buildCartEntryKey(entry) {
+        const normalized = normalizeCartEntry(entry);
+        return `${normalized.productId}::${normalized.size}::${normalized.color}`;
+    }
+
+    function formatVariantLabel(size, color) {
+        const parts = [];
+        if (size) parts.push(`尺寸 ${size}`);
+        if (color) parts.push(`顏色 ${color}`);
+        return parts.join(" / ");
+    }
+
+    function buildOrderProductTitle(name, size, color) {
+        const variant = formatVariantLabel(size, color);
+        return variant ? `${name} (${variant})` : name;
     }
 
     function getFavoriteProductIds() {
@@ -204,6 +256,15 @@
                 txHash: input.txHash || "",
                 createdAt: input.createdAt || new Date().toISOString()
             })
+        });
+    }
+
+    async function uploadProductImage(file) {
+        const formData = new window.FormData();
+        formData.append("image", file);
+        return apiRequest("/api/uploads/product-image", {
+            method: "POST",
+            body: formData
         });
     }
 
@@ -585,11 +646,15 @@
         saveReview,
         fetchPayouts,
         savePayout,
+        uploadProductImage,
         getConfiguredContractAddress,
         setStoredContractAddress,
         clearStoredContractAddress,
         getCart,
         saveCart,
+        buildCartEntryKey,
+        formatVariantLabel,
+        buildOrderProductTitle,
         getFavoriteProductIds,
         isFavoriteProduct,
         toggleFavoriteProduct,
