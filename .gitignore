@@ -8,6 +8,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-project_1_sol_*.bin
+artifacts/contracts/*.bin
+artifacts/contracts/*.abi
+target/
 dist/
 coverage/

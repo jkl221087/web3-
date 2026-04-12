@@ -36,14 +36,14 @@ Frontend (HTML / CSS / JS)
 ├─ Seller Center
 └─ Seller Studio
 
-Local JSON API (serve-frontend.mjs)
+Local JSON API (Rust / Axum)
 ├─ /api/products
 ├─ /api/sellers
 ├─ /api/orders
 ├─ /api/reviews
 └─ /api/payouts
 
-Smart Contract (project_1.sol)
+Smart Contract (contracts/project_1.sol)
 ├─ create_and_fund_order
 ├─ confirm_order_received
 ├─ withdraw_order_funds
@@ -80,13 +80,23 @@ Smart Contract (project_1.sol)
 
 ## Getting Started
 
-### 1. Install
+### 1. Install JavaScript Dependencies
 
 ```powershell
 npm install
 ```
 
-### 2. Configure Contract Address
+### 2. Install Rust Toolchain
+
+請先安裝 Rust：
+
+```powershell
+rustup --version
+```
+
+如果沒有安裝，可到 <https://rustup.rs/> 安裝。
+
+### 3. Configure Contract Address
 
 編輯 `frontend/config.js`：
 
@@ -99,10 +109,17 @@ window.APP_CONFIG = {
 
 部署到 Sepolia 後，把 `DEFAULT_CONTRACT_ADDRESS` 換成你的合約地址。
 
-### 3. Start Local Server
+### 4. Start Local Server
 
 ```powershell
 npm run frontend
+```
+
+這個指令現在會啟動 Rust backend server。  
+如果你要切回舊版 Node server 做比對，也可以執行：
+
+```powershell
+npm run frontend:node
 ```
 
 開啟：
@@ -112,24 +129,52 @@ npm run frontend
 - `http://localhost:3000/frontend/seller-center.html`
 - `http://localhost:3000/frontend/seller.html`
 
-### 4. Compile Contract
+### 5. Compile Contract
 
 ```powershell
 npm run compile:contract
+```
+
+### 6. Send a Test Transaction With Rust
+
+如果 `.env` 已經設定好 `RPC_URL` 和 `PRIVATE_KEY`，可以用 Rust 工具送測試交易：
+
+```powershell
+npm run send:tx
 ```
 
 ## Project Structure
 
 ```text
 web3-basics/
+├─ artifacts/               # 合約編譯輸出
+│  └─ contracts/
+├─ contracts/               # Solidity 合約來源
+│  ├─ project_1.sol
+│  └─ experimental/         # 舊版 / 測試合約
 ├─ data/                    # 本地 JSON 資料
-├─ frontend/                # 前端頁面、樣式、互動腳本
-├─ project_1.sol            # Escrow 合約
-├─ serve-frontend.mjs       # 本地靜態 + JSON API server
+├─ frontend/                # 商店前端頁面、樣式、互動腳本
+├─ legacy/                  # 舊版保留檔
+│  ├─ frontend/
+│  └─ node/
+├─ src/                     # Rust server 與工具
+│  ├─ main.rs
+│  └─ bin/send_tx.rs
+├─ Cargo.toml
 ├─ package.json
 ├─ .env.example
 └─ README.md
 ```
+
+## What Stayed Native
+
+不是所有東西都適合硬改成 Rust，這個專案目前保留：
+
+- Solidity：智能合約本體
+- HTML / CSS / 瀏覽器 JavaScript：商店前端與 DApp 互動
+- Node `solc` CLI：目前仍用來編譯 Solidity 合約
+
+這樣的分工比較符合實務，也能避免為了 Rust 化而犧牲維護性。
 
 ## Security Notes
 
@@ -137,14 +182,17 @@ web3-basics/
 - 如果你曾在本機 `.env` 中放過真實私鑰，建議立即更換那把私鑰
 - `frontend/config.js` 公開版預設不帶合約地址
 - `data/*.json` 已整理成乾淨初始狀態
+- `legacy/` 內是保留做比對或回退的舊版檔案，不是主執行路徑
 
 ## Tech Stack
 
 - Solidity
+- Rust
+- Axum
+- Tokio
 - Ethers.js v6
 - Vanilla JavaScript
 - HTML / CSS
-- Node.js HTTP Server
 - JSON file storage
 
 ## Next Steps

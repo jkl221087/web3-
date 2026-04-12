@@ -5,13 +5,18 @@
   "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "frontend": "node serve-frontend.mjs",
-    "compile:contract": "node ./node_modules/solc/solc.js --bin ./project_1.sol"
+    "frontend": "cargo run",
+    "frontend:rust": "cargo run",
+    "frontend:node": "node legacy/node/serve-frontend.mjs",
+    "check:rust": "cargo check",
+    "compile:contract": "node ./node_modules/solc/solc.js --bin -o ./artifacts/contracts ./contracts/project_1.sol",
+    "send:tx": "cargo run --bin send_tx",
+    "send:tx:rust": "cargo run --bin send_tx"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "Escrow fashion store DApp prototype with storefront, buyer center, seller center, and local JSON API.",
+  "description": "Escrow fashion store DApp prototype with a Rust local API server, storefront, buyer center, and seller center.",
   "homepage": "https://github.com/jkl221087/web3-",
   "repository": {
     "type": "git",
@@ -22,12 +27,6 @@
   },
   "dependencies": {
     "@remix-project/remixd": "^0.6.62",
-    "dotenv": "^17.4.1",
     "ethers": "^6.16.0"
-  },
-  "devDependencies": {
-    "@types/node": "^25.5.2",
-    "ts-node": "^10.9.2",
-    "typescript": "^6.0.2"
   }
 }
