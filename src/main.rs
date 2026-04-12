@@ -12,7 +12,7 @@ use axum::{
     Router,
     body::Body,
     extract::{Multipart, Path as AxumPath, State},
-    http::{HeaderValue, Response, StatusCode, header},
+    http::{HeaderMap, HeaderValue, Response, StatusCode, header},
     response::IntoResponse,
     routing::{get, patch, post},
 };
@@ -28,6 +28,7 @@ struct AppState {
     root: PathBuf,
     db_path: Arc<PathBuf>,
     upload_dir: Arc<PathBuf>,
+    admin_address: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -224,6 +225,10 @@ async fn main() {
         root,
         db_path: Arc::new(db_path),
         upload_dir: Arc::new(upload_dir),
+        admin_address: env::var("ADMIN_WALLET_ADDRESS")
+            .ok()
+            .map(|value| normalize_address(&value))
+            .filter(|value| is_valid_evm_address(value)),
     };
 
     let app = Router::new()
@@ -441,6 +446,83 @@ fn json_error(status: StatusCode, message: &str) -> (StatusCode, axum::Json<Valu
     (status, axum::Json(json!({ "error": message })))
 }
 
+fn normalize_address(address: &str) -> String {
+    address.trim().to_ascii_lowercase()
+}
+
+fn is_valid_evm_address(address: &str) -> bool {
+    let value = address.trim();
+    value.len() == 42
+        && value.starts_with("0x")
+        && value
+            .bytes()
+            .skip(2)
+            .all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn require_actor_address(headers: &HeaderMap) -> AppResult<String> {
+    let Some(value) = headers.get("x-actor-address") else {
+        return Err(json_error(
+            StatusCode::UNAUTHORIZED,
+            "Missing x-actor-address header",
+        ));
+    };
+
+    let actor = value
+        .to_str()
+        .map_err(|_| json_error(StatusCode::BAD_REQUEST, "Invalid x-actor-address header"))?;
+    let actor = normalize_address(actor);
+
+    if !is_valid_evm_address(&actor) {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Actor address must be a valid EVM address",
+        ));
+    }
+
+    Ok(actor)
+}
+
+fn require_admin_actor(state: &AppState, headers: &HeaderMap) -> AppResult<String> {
+    let actor = require_actor_address(headers)?;
+    let Some(admin_address) = state.admin_address.as_ref() else {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "ADMIN_WALLET_ADDRESS is not configured on the server",
+        ));
+    };
+
+    if &actor != admin_address {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only the configured admin wallet can perform this action",
+        ));
+    }
+
+    Ok(actor)
+}
+
+fn ensure_non_empty(value: &str, field_name: &str) -> AppResult<()> {
+    if value.trim().is_empty() {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            &format!("{field_name} is required"),
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_uint_string(value: &str, field_name: &str) -> AppResult<()> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || !trimmed.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            &format!("{field_name} must be an unsigned integer string"),
+        ));
+    }
+    Ok(())
+}
+
 fn log_internal_error(
     context: &str,
     error: impl std::fmt::Display,
@@ -500,20 +582,37 @@ async fn get_products(State(state): State<AppState>) -> impl IntoResponse {
 
 async fn create_product(
     State(state): State<AppState>,
+    headers: HeaderMap,
     axum::Json(payload): axum::Json<CreateProduct>,
 ) -> AppResult<impl IntoResponse> {
-    let seller = payload.seller.trim().to_string();
+    let actor = require_actor_address(&headers)?;
+    let seller = normalize_address(&payload.seller);
     let name = payload.name.trim().to_string();
-    if seller.is_empty() || name.is_empty() || payload.price_wei.trim().is_empty() {
+    ensure_non_empty(&seller, "Seller")?;
+    ensure_non_empty(&name, "Name")?;
+    ensure_uint_string(&payload.price_wei, "priceWei")?;
+    if !is_valid_evm_address(&seller) {
+        return Err(json_error(StatusCode::BAD_REQUEST, "Seller must be a valid EVM address"));
+    }
+    if actor != seller {
         return Err(json_error(
-            StatusCode::BAD_REQUEST,
-            "Seller, name and price are required",
+            StatusCode::FORBIDDEN,
+            "Seller can only create products for the connected wallet address",
         ));
     }
 
     let meta_json = serde_json::to_string(&payload.meta)
         .map_err(|error| log_internal_error("Failed to serialize product meta", error))?;
     let product = with_connection(&state, move |conn| {
+        let seller_status = fetch_seller_status(conn, &seller)
+            .map_err(|error| log_internal_error("Failed to load seller status", error))?;
+        if seller_status.as_deref() != Some("approved") {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "Seller address must be approved before creating products",
+            ));
+        }
+
         conn.execute(
             "INSERT INTO products (seller, name, price_wei, is_active, meta_json)
              VALUES (?1, ?2, ?3, 1, ?4)",
@@ -531,13 +630,25 @@ async fn create_product(
 
 async fn update_product(
     State(state): State<AppState>,
+    headers: HeaderMap,
     AxumPath(id): AxumPath<u64>,
     axum::Json(payload): axum::Json<UpdateProduct>,
 ) -> AppResult<impl IntoResponse> {
+    let actor = require_actor_address(&headers)?;
+    let admin_address = state.admin_address.clone();
     let product = with_connection(&state, move |conn| {
+        let current = fetch_product_by_id(conn, id)?
+            .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Product not found"))?;
+        let is_admin = admin_address.as_deref() == Some(actor.as_str());
+        if normalize_address(&current.seller) != actor && !is_admin {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "Only the seller or admin can update this product",
+            ));
+        }
+
         let Some(is_active) = payload.is_active else {
-            return fetch_product_by_id(conn, id)?
-                .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Product not found"));
+            return Ok(current);
         };
 
         let updated = conn
@@ -566,11 +677,20 @@ async fn get_sellers(State(state): State<AppState>) -> impl IntoResponse {
 
 async fn request_seller(
     State(state): State<AppState>,
+    headers: HeaderMap,
     axum::Json(payload): axum::Json<SellerRequestPayload>,
 ) -> AppResult<impl IntoResponse> {
-    let address = payload.address.trim().to_string();
-    if address.is_empty() {
-        return Err(json_error(StatusCode::BAD_REQUEST, "Address required"));
+    let actor = require_actor_address(&headers)?;
+    let address = normalize_address(&payload.address);
+    ensure_non_empty(&address, "Address")?;
+    if !is_valid_evm_address(&address) {
+        return Err(json_error(StatusCode::BAD_REQUEST, "Address must be a valid EVM address"));
+    }
+    if actor != address {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Seller request address must match the connected wallet address",
+        ));
     }
 
     let sellers = with_connection(&state, move |conn| {
@@ -602,11 +722,14 @@ async fn request_seller(
 
 async fn approve_seller(
     State(state): State<AppState>,
+    headers: HeaderMap,
     axum::Json(payload): axum::Json<SellerApprovePayload>,
 ) -> AppResult<impl IntoResponse> {
-    let address = payload.address.trim().to_string();
-    if address.is_empty() {
-        return Err(json_error(StatusCode::BAD_REQUEST, "Address required"));
+    require_admin_actor(&state, &headers)?;
+    let address = normalize_address(&payload.address);
+    ensure_non_empty(&address, "Address")?;
+    if !is_valid_evm_address(&address) {
+        return Err(json_error(StatusCode::BAD_REQUEST, "Address must be a valid EVM address"));
     }
 
     let approved = payload.approved.unwrap_or(true);
@@ -638,10 +761,23 @@ async fn get_orders(State(state): State<AppState>) -> impl IntoResponse {
 
 async fn upsert_order(
     State(state): State<AppState>,
+    headers: HeaderMap,
     axum::Json(payload): axum::Json<CreateOrderPayload>,
 ) -> AppResult<impl IntoResponse> {
+    let _actor = require_actor_address(&headers)?;
     if payload.order_id == 0 {
         return Err(json_error(StatusCode::BAD_REQUEST, "Order ID required"));
+    }
+    if let Some(product_seller) = payload.product_seller.as_deref() {
+        if !product_seller.trim().is_empty() && !is_valid_evm_address(product_seller) {
+            return Err(json_error(
+                StatusCode::BAD_REQUEST,
+                "productSeller must be a valid EVM address",
+            ));
+        }
+    }
+    if let Some(price_wei) = payload.price_wei.as_deref() {
+        ensure_uint_string(price_wei, "priceWei")?;
     }
 
     let next = with_connection(&state, move |conn| {
@@ -688,13 +824,23 @@ async fn upsert_order(
 
 async fn update_order_flow(
     State(state): State<AppState>,
+    headers: HeaderMap,
     AxumPath(id): AxumPath<u64>,
     axum::Json(payload): axum::Json<UpdateOrderFlowPayload>,
 ) -> AppResult<impl IntoResponse> {
+    let actor = require_actor_address(&headers)?;
+    let admin_address = state.admin_address.clone();
     let updated = with_connection(&state, move |conn| {
         let mut current = fetch_order_by_id(conn, id)
             .map_err(|error| log_internal_error("Failed to load order", error))?
             .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Order not found"))?;
+        let is_admin = admin_address.as_deref() == Some(actor.as_str());
+        if normalize_address(&current.product_seller) != actor && !is_admin {
+            return Err(json_error(
+                StatusCode::FORBIDDEN,
+                "Only the seller or admin can update order flow",
+            ));
+        }
         current.flow_stage = payload.flow_stage.unwrap_or(current.flow_stage).clamp(1, 4);
 
         conn.execute(
@@ -718,13 +864,29 @@ async fn get_reviews(State(state): State<AppState>) -> impl IntoResponse {
 
 async fn upsert_review(
     State(state): State<AppState>,
+    headers: HeaderMap,
     axum::Json(payload): axum::Json<CreateReviewPayload>,
 ) -> AppResult<impl IntoResponse> {
+    let actor = require_actor_address(&headers)?;
     if payload.order_id == 0 {
         return Err(json_error(StatusCode::BAD_REQUEST, "Order ID required"));
     }
     if !(1..=5).contains(&payload.rating) {
         return Err(json_error(StatusCode::BAD_REQUEST, "Rating required"));
+    }
+    let buyer = normalize_address(payload.buyer.as_deref().unwrap_or_default());
+    let seller = normalize_address(payload.seller.as_deref().unwrap_or_default());
+    if !is_valid_evm_address(&buyer) || !is_valid_evm_address(&seller) {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Buyer and seller must be valid EVM addresses",
+        ));
+    }
+    if actor != buyer {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only the buyer can create or update the review",
+        ));
     }
 
     let review = with_connection(&state, move |conn| {
@@ -732,8 +894,8 @@ async fn upsert_review(
             order_id: payload.order_id,
             product_id: payload.product_id.unwrap_or(0),
             product_name: payload.product_name.unwrap_or_default(),
-            seller: payload.seller.unwrap_or_default(),
-            buyer: payload.buyer.unwrap_or_default(),
+            seller,
+            buyer,
             rating: payload.rating,
             comment: payload.comment.unwrap_or_default().trim().to_string(),
             created_at: payload.created_at.unwrap_or_else(now_iso_like),
@@ -781,17 +943,34 @@ async fn get_payouts(State(state): State<AppState>) -> impl IntoResponse {
 
 async fn upsert_payout(
     State(state): State<AppState>,
+    headers: HeaderMap,
     axum::Json(payload): axum::Json<CreatePayoutPayload>,
 ) -> AppResult<impl IntoResponse> {
+    let actor = require_actor_address(&headers)?;
     if payload.order_id == 0 {
         return Err(json_error(StatusCode::BAD_REQUEST, "Order ID required"));
     }
+    let seller = normalize_address(payload.seller.as_deref().unwrap_or_default());
+    let buyer = normalize_address(payload.buyer.as_deref().unwrap_or_default());
+    if !is_valid_evm_address(&seller) || !is_valid_evm_address(&buyer) {
+        return Err(json_error(
+            StatusCode::BAD_REQUEST,
+            "Buyer and seller must be valid EVM addresses",
+        ));
+    }
+    if actor != seller {
+        return Err(json_error(
+            StatusCode::FORBIDDEN,
+            "Only the seller can save payout history",
+        ));
+    }
+    ensure_uint_string(payload.amount_wei.as_deref().unwrap_or(""), "amountWei")?;
 
     let payout = with_connection(&state, move |conn| {
         let next = Payout {
             order_id: payload.order_id,
-            seller: payload.seller.unwrap_or_default(),
-            buyer: payload.buyer.unwrap_or_default(),
+            seller,
+            buyer,
             product_id: payload.product_id.unwrap_or(0),
             product_name: payload.product_name.unwrap_or_default(),
             amount_wei: payload.amount_wei.unwrap_or_else(|| "0".to_string()),
@@ -834,9 +1013,11 @@ async fn upsert_payout(
 
 async fn upload_product_image(
     State(state): State<AppState>,
+    headers: HeaderMap,
     mut multipart: Multipart,
 ) -> AppResult<impl IntoResponse> {
     const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
+    let _actor = require_actor_address(&headers)?;
 
     while let Some(field) = multipart
         .next_field()

@@ -100,6 +100,23 @@ rustup --version
 
 如果沒有安裝，可到 <https://rustup.rs/> 安裝。
 
+### Admin API Guard
+
+如果你要啟用後端 admin 權限檢查，請在 `.env` 設定：
+
+```powershell
+ADMIN_WALLET_ADDRESS="0x你的Owner地址"
+```
+
+目前後端已經對寫入型 API 補上基本限制：
+
+- `create product`：只能由已核准賣家本人建立
+- `toggle product`：只能由商品賣家或 admin 操作
+- `seller approve`：只能由 `ADMIN_WALLET_ADDRESS` 指定地址操作
+- `order flow update`：只能由賣家或 admin 更新
+- `review`：只能由 buyer 自己送出
+- `payout history`：只能由 seller 自己寫入
+
 ### 3. Configure Contract Address
 
 編輯 `frontend/config.js`：

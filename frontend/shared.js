@@ -78,6 +78,10 @@
 
     async function apiRequest(path, options = {}) {
         const headers = new window.Headers(options.headers || {});
+        const authActor = options.authActor === false ? "" : (runtime.currentAccount || "");
+        if (authActor) {
+            headers.set("x-actor-address", authActor);
+        }
         if (!(options.body instanceof window.FormData) && !headers.has("Content-Type")) {
             headers.set("Content-Type", "application/json");
         }
