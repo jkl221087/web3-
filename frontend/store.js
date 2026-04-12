@@ -1,10 +1,21 @@
 const core = window.FashionStoreCore;
 
+function escapeHtml(str) {
+    return String(str == null ? "" : str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
 const dom = {
     connectButton: document.getElementById("connectButton"),
     switchNetworkButton: document.getElementById("switchNetworkButton"),
     cartToggleButton: document.getElementById("cartToggleButton"),
+    ordersToggleButton: document.getElementById("ordersToggleButton"),
     cartCloseButton: document.getElementById("cartCloseButton"),
+    ordersCloseButton: document.getElementById("ordersCloseButton"),
     checkoutButton: document.getElementById("checkoutButton"),
     clearCartButton: document.getElementById("clearCartButton"),
     drawerBackdrop: document.getElementById("drawerBackdrop"),
@@ -23,6 +34,7 @@ const dom = {
     orderStageFilter: document.getElementById("orderStageFilter"),
     ordersSummary: document.getElementById("ordersSummary"),
     ordersGrid: document.getElementById("ordersGrid"),
+    ordersPopover: document.getElementById("ordersPopover"),
     cartDrawer: document.getElementById("cartDrawer"),
     cartItems: document.getElementById("cartItems"),
     cartCount: document.getElementById("cartCount"),
@@ -46,7 +58,9 @@ const state = {
     orderStageFilter: "all",
     expandedOrders: [],
     autoScrollPaused: false,
-    railFrame: null
+    railFrame: null,
+    cartOpen: false,
+    ordersOpen: false
 };
 
 function toast(type, message) {
@@ -69,9 +83,28 @@ function setHeaderState() {
     dom.contractAddressLabel.textContent = contractAddress ? core.formatAddress(contractAddress) : "未設定";
 }
 
+function syncOverlayState() {
+    dom.drawerBackdrop.classList.toggle("visible", state.cartOpen || state.ordersOpen);
+}
+
 function setCartOpen(isOpen) {
+    state.cartOpen = isOpen;
     dom.cartDrawer.classList.toggle("open", isOpen);
-    dom.drawerBackdrop.classList.toggle("visible", isOpen);
+    if (isOpen) {
+        state.ordersOpen = false;
+        dom.ordersPopover.classList.remove("open");
+    }
+    syncOverlayState();
+}
+
+function setOrdersOpen(isOpen) {
+    state.ordersOpen = isOpen;
+    dom.ordersPopover.classList.toggle("open", isOpen);
+    if (isOpen) {
+        state.cartOpen = false;
+        dom.cartDrawer.classList.remove("open");
+    }
+    syncOverlayState();
 }
 
 function matchesFilter(product) {
@@ -128,6 +161,7 @@ function renderCatalog() {
     const keyword = state.search.trim().toLowerCase();
 
     const filtered = state.products.filter((product) => {
+        if (!product.isActive) return false;
         const inSearch =
             !keyword ||
             product.name.toLowerCase().includes(keyword) ||
@@ -137,31 +171,35 @@ function renderCatalog() {
     });
 
     if (!filtered.length) {
+        dom.catalogGrid.classList.remove("single-card");
         dom.catalogGrid.innerHTML = '<article class="panel-card"><strong>目前沒有符合條件的商品</strong><p>可以先切換分類或重新調整搜尋條件。</p></article>';
         return;
     }
 
+    dom.catalogGrid.classList.toggle("single-card", filtered.length === 1);
+
     filtered.forEach((product) => {
         const card = document.createElement("article");
         card.className = "product-card rail-card";
+        const descFallback = `${product.meta.style} / ${product.meta.season} / ${core.formatAddress(product.seller)}`;
         card.innerHTML = `
             <a href="/frontend/product.html?id=${product.productId}">
-                <img src="${product.image}" alt="${product.name}" />
+                <img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" />
             </a>
             <div class="product-meta">
                 <span>#${product.productId}</span>
                 <div class="detail-tags">
-                    <span class="tag-pill">${product.meta.department}</span>
-                    <span class="tag-pill">${product.meta.season}</span>
+                    <span class="tag-pill">${escapeHtml(product.meta.department)}</span>
+                    <span class="tag-pill">${escapeHtml(product.meta.season)}</span>
                 </div>
             </div>
             <div>
-                <h3>${product.name}</h3>
-                <p>${product.meta.description || `${product.meta.style} / ${product.meta.season} / ${core.formatAddress(product.seller)}`}</p>
-                <p>尺寸：${product.meta.sizes.join(" / ")} ・ 顏色：${product.meta.colors.join(" / ")} ・ 庫存：${product.meta.stock}</p>
+                <h3>${escapeHtml(product.name)}</h3>
+                <p>${escapeHtml(product.meta.description || descFallback)}</p>
+                <p>尺寸：${escapeHtml(product.meta.sizes.join(" / "))} ・ 顏色：${escapeHtml(product.meta.colors.join(" / "))} ・ 庫存：${product.meta.stock}</p>
             </div>
             <div class="price-row">
-                <strong>${core.formatEth(product.priceWei)}</strong>
+                <strong>${escapeHtml(core.formatEth(product.priceWei))}</strong>
                 <button class="button primary" data-action="add-to-cart" data-product-id="${product.productId}" type="button" ${product.isActive && product.meta.stock > 0 ? "" : "disabled"}>
                     ${product.isActive ? (product.meta.stock > 0 ? "加入購物車" : "已缺貨") : "已下架"}
                 </button>
@@ -182,19 +220,20 @@ function renderCompactRecommendations(target, products, emptyTitle, emptyDescrip
     products.forEach((product) => {
         const card = document.createElement("article");
         card.className = "compact-product-card";
+        const descFallback = `${product.meta.style} / ${core.formatAddress(product.seller)}`;
         card.innerHTML = `
-            <img src="${product.image}" alt="${product.name}" />
+            <img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" />
             <div class="compact-product-copy">
                 <div class="detail-tags">
-                    <span class="tag-pill">${product.meta.department}</span>
-                    <span class="tag-pill">${product.meta.season}</span>
+                    <span class="tag-pill">${escapeHtml(product.meta.department)}</span>
+                    <span class="tag-pill">${escapeHtml(product.meta.season)}</span>
                 </div>
-                <h3>${product.name}</h3>
-                <p>${product.meta.description || `${product.meta.style} / ${core.formatAddress(product.seller)}`}</p>
-                <p>尺寸：${product.meta.sizes.join(" / ")} ・ 庫存：${product.meta.stock}</p>
+                <h3>${escapeHtml(product.name)}</h3>
+                <p>${escapeHtml(product.meta.description || descFallback)}</p>
+                <p>尺寸：${escapeHtml(product.meta.sizes.join(" / "))} ・ 庫存：${product.meta.stock}</p>
                 ${extraBuilder(product)}
                 <div class="price-row">
-                    <strong>${core.formatEth(product.priceWei)}</strong>
+                    <strong>${escapeHtml(core.formatEth(product.priceWei))}</strong>
                     <a href="/frontend/product.html?id=${product.productId}" class="button ghost link-button">查看</a>
                 </div>
             </div>
@@ -296,23 +335,23 @@ function renderCart() {
         card.className = "cart-card";
         card.innerHTML = `
             <div class="cart-row">
-                <strong>${item.product.name}</strong>
-                <button class="icon-button" data-action="remove-from-cart" data-entry-key="${item.entryKey}" type="button">×</button>
+                <strong>${escapeHtml(item.product.name)}</strong>
+                <button class="icon-button" data-action="remove-from-cart" data-entry-key="${escapeHtml(item.entryKey)}" type="button">×</button>
             </div>
             <div class="detail-tags">
-                <span class="tag-pill">${item.product.meta.department}</span>
-                <span class="tag-pill">${item.product.meta.season}</span>
-                ${item.size ? `<span class="tag-pill">${item.size}</span>` : ""}
-                ${item.color ? `<span class="tag-pill">${item.color}</span>` : ""}
+                <span class="tag-pill">${escapeHtml(item.product.meta.department)}</span>
+                <span class="tag-pill">${escapeHtml(item.product.meta.season)}</span>
+                ${item.size ? `<span class="tag-pill">${escapeHtml(item.size)}</span>` : ""}
+                ${item.color ? `<span class="tag-pill">${escapeHtml(item.color)}</span>` : ""}
             </div>
             <div class="cart-row">
                 <span>數量 ${item.quantity}</span>
-                <strong>${core.formatEth(item.totalWei)}</strong>
+                <strong>${escapeHtml(core.formatEth(item.totalWei))}</strong>
             </div>
-            <p>${item.variantLabel || "預設規格"}</p>
+            <p>${escapeHtml(item.variantLabel || "預設規格")}</p>
             <div class="detail-actions">
-                <button class="button ghost" data-action="decrease-qty" data-entry-key="${item.entryKey}" type="button">-1</button>
-                <button class="button ghost" data-action="increase-qty" data-entry-key="${item.entryKey}" type="button">+1</button>
+                <button class="button ghost" data-action="decrease-qty" data-entry-key="${escapeHtml(item.entryKey)}" type="button">-1</button>
+                <button class="button ghost" data-action="increase-qty" data-entry-key="${escapeHtml(item.entryKey)}" type="button">+1</button>
             </div>
         `;
         dom.cartItems.append(card);
@@ -437,7 +476,6 @@ function renderOrderSummary(orders) {
 
 function renderOrders() {
     dom.ordersGrid.innerHTML = "";
-    renderRecommendations();
 
     if (!state.account) {
         renderOrderSummary([]);
@@ -462,29 +500,30 @@ function renderOrders() {
         const expanded = isOrderExpanded(order.orderId);
         const card = document.createElement("article");
         card.className = "order-card";
+        const productName = escapeHtml(product ? product.name : (order.productName || `商品 #${order.productId || order.orderId}`));
         card.innerHTML = `
             <div class="order-head">
                 <div>
                     <strong>訂單 #${order.orderId}</strong>
-                    <p>${product ? product.name : (order.productName || `商品 #${order.productId || order.orderId}`)}</p>
+                    <p>${productName}</p>
                 </div>
                 <div class="detail-tags">
-                    <span class="order-chip ${flow.tone}">${flow.label}</span>
+                    <span class="order-chip ${flow.tone}">${escapeHtml(flow.label)}</span>
                     <span class="order-chip ${order.sellerWithdrawn ? "success" : "muted"}">${order.sellerWithdrawn ? "已提領" : "待提領"}</span>
                 </div>
             </div>
             <div class="order-meta">
-                <span>買家：${core.formatAddress(order.buyer)}</span>
-                <span>賣家：${core.formatAddress(order.seller)}</span>
+                <span>買家：${escapeHtml(core.formatAddress(order.buyer))}</span>
+                <span>賣家：${escapeHtml(core.formatAddress(order.seller))}</span>
             </div>
             <div class="order-stage-row">
                 <span class="status-light ${flow.stage >= 4 && !order.sellerWithdrawn ? "active" : ""}"></span>
-                <strong>${flow.label}</strong>
-                <span>${flow.description}</span>
+                <strong>${escapeHtml(flow.label)}</strong>
+                <span>${escapeHtml(flow.description)}</span>
             </div>
             <div class="step-track">${buildOrderStepTrack(order)}</div>
             <div class="price-row">
-                <strong>${core.formatEth(order.amountWei)}</strong>
+                <strong>${escapeHtml(core.formatEth(order.amountWei))}</strong>
                 <div class="detail-actions">
                     <button class="button ghost" data-action="toggle-order-detail" data-order-id="${order.orderId}" type="button">${expanded ? "收合明細" : "查看明細"}</button>
                     ${buildOrderActions(order, isBuyer, isSeller)}
@@ -495,22 +534,22 @@ function renderOrders() {
                     <div class="order-detail-grid">
                         <div class="order-detail-block">
                             <span class="eyebrow">Order Snapshot</span>
-                            <strong>${product ? product.name : (order.productName || `商品 #${order.productId || order.orderId}`)}</strong>
+                            <strong>${productName}</strong>
                             <p>商品 ID：${order.productId || "-"}</p>
-                            <p>鏈上金額：${core.formatEth(order.amountWei)}</p>
+                            <p>鏈上金額：${escapeHtml(core.formatEth(order.amountWei))}</p>
                             <p>付款狀態：${order.payState ? "已付款" : "未付款"}</p>
                         </div>
                         <div class="order-detail-block">
                             <span class="eyebrow">Roles</span>
                             <p>目前視角：${isBuyer ? "買家" : "賣家"}</p>
-                            <p>買家地址：${order.buyer}</p>
-                            <p>賣家地址：${order.seller}</p>
+                            <p>買家地址：${escapeHtml(order.buyer)}</p>
+                            <p>賣家地址：${escapeHtml(order.seller)}</p>
                             <p>提領狀態：${order.sellerWithdrawn ? "已完成提領" : "尚未提領"}</p>
                         </div>
                         <div class="order-detail-block">
                             <span class="eyebrow">Logistics</span>
-                            <p>站內物流階段：${flow.label}</p>
-                            <p>${flow.description}</p>
+                            <p>站內物流階段：${escapeHtml(flow.label)}</p>
+                            <p>${escapeHtml(flow.description)}</p>
                             <p>鏈上收貨確認：${order.completeState ? "已確認" : "未確認"}</p>
                             <p>可提領：${order.completeState && !order.sellerWithdrawn ? "是" : "否"}</p>
                         </div>
@@ -581,6 +620,7 @@ async function loadData() {
         state.reviews = await core.fetchReviews();
         const balance = await core.fetchContractBalance();
         dom.escrowBalance.textContent = core.formatEth(balance);
+        renderRecommendations();
         renderCatalog();
         renderCart();
         renderOrders();
@@ -606,7 +646,12 @@ async function checkoutCart() {
         return;
     }
 
-    const contract = await core.ensureContract({ requireSigner: true });
+    dom.checkoutButton.disabled = true;
+    const originalText = dom.checkoutButton.textContent;
+    dom.checkoutButton.textContent = "結帳中…";
+
+    try {
+        const contract = await core.ensureContract({ requireSigner: true });
     const items = getCartDetailedItems();
     const totalTokenAmount = items.reduce((sum, item) => sum + item.totalWei, 0n);
 
@@ -652,11 +697,22 @@ async function checkoutCart() {
     setCartOpen(false);
     await loadData();
     toast("success", "穩定幣結帳完成，訂單已建立");
+    } finally {
+        dom.checkoutButton.disabled = false;
+        dom.checkoutButton.textContent = originalText;
+    }
 }
 
 async function handleActionClick(event) {
     const trigger = event.target.closest("[data-action]");
-    if (!trigger) return;
+    if (!trigger || trigger.disabled) return;
+
+    const action = trigger.dataset.action;
+    const isAsync = ["mark-shipped", "mark-arrived", "mark-waiting-pickup", "confirm-received", "withdraw-order"].includes(action);
+
+    if (isAsync) {
+        trigger.disabled = true;
+    }
 
     try {
         const action = trigger.dataset.action;
@@ -712,6 +768,8 @@ async function handleActionClick(event) {
         }
     } catch (error) {
         toast("error", normalizeError(error));
+    } finally {
+        trigger.disabled = false;
     }
 }
 
@@ -785,9 +843,18 @@ dom.catalogViewport.addEventListener("mouseleave", () => {
     state.autoScrollPaused = false;
 });
 
+document.addEventListener("visibilitychange", () => {
+    state.autoScrollPaused = document.hidden;
+});
+
 dom.cartToggleButton.addEventListener("click", () => setCartOpen(true));
+dom.ordersToggleButton.addEventListener("click", () => setOrdersOpen(true));
 dom.cartCloseButton.addEventListener("click", () => setCartOpen(false));
-dom.drawerBackdrop.addEventListener("click", () => setCartOpen(false));
+dom.ordersCloseButton.addEventListener("click", () => setOrdersOpen(false));
+dom.drawerBackdrop.addEventListener("click", () => {
+    setCartOpen(false);
+    setOrdersOpen(false);
+});
 dom.clearCartButton.addEventListener("click", () => {
     state.cart = [];
     syncCart();

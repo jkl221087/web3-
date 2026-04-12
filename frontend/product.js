@@ -28,6 +28,7 @@ const state = {
     account: null,
     products: [],
     currentProduct: null,
+    inactiveProduct: null,
     reviews: [],
     selectedSize: "",
     selectedColor: ""
@@ -53,9 +54,12 @@ function getProductIdFromUrl() {
 
 function renderCurrentProduct() {
     if (!state.currentProduct) {
-        dom.detailName.textContent = "找不到這件商品";
-        dom.detailDescription.textContent = "請回到商店首頁重新選擇商品。";
+        dom.detailName.textContent = state.inactiveProduct ? "這件商品已下架" : "找不到這件商品";
+        dom.detailDescription.textContent = state.inactiveProduct
+            ? "這件商品目前已從商店商品區移除，如需重新販售會再回到前台。"
+            : "請回到商店首頁重新選擇商品。";
         dom.detailAddCartButton.disabled = true;
+        dom.detailAddCartButton.textContent = state.inactiveProduct ? "商品已下架" : "無法加入購物車";
         dom.detailSellerReviewSummary.innerHTML = "";
         dom.detailSellerReviewList.innerHTML = "";
         return;
@@ -108,7 +112,11 @@ function renderRelatedProducts() {
     }
 
     const related = state.products
-        .filter((product) => product.productId !== state.currentProduct.productId && product.meta.department === state.currentProduct.meta.department)
+        .filter((product) =>
+            product.isActive &&
+            product.productId !== state.currentProduct.productId &&
+            product.meta.department === state.currentProduct.meta.department
+        )
         .slice(0, 3);
 
     if (!related.length) {
@@ -217,7 +225,9 @@ async function hydrate() {
 
     state.products = await core.fetchProducts();
     state.reviews = await core.fetchReviews();
-    state.currentProduct = state.products.find((product) => product.productId === getProductIdFromUrl()) || null;
+    const targetProductId = getProductIdFromUrl();
+    state.currentProduct = state.products.find((product) => product.productId === targetProductId && product.isActive) || null;
+    state.inactiveProduct = state.products.find((product) => product.productId === targetProductId && !product.isActive) || null;
     if (state.currentProduct) {
         core.pushRecentlyViewedProduct(state.currentProduct.productId);
     }

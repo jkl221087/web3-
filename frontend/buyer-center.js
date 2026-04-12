@@ -23,6 +23,7 @@ const dom = {
 const state = {
     account: null,
     chainId: null,
+    session: null,
     products: [],
     orders: [],
     reviews: [],
@@ -141,11 +142,11 @@ function renderCollections() {
     const recentIds = core.getRecentlyViewedProductIds();
     const favoriteProducts = favoriteIds
         .map((id) => state.products.find((product) => product.productId === id))
-        .filter(Boolean)
+        .filter((product) => product && product.isActive)
         .slice(0, 4);
     const recentProducts = recentIds
         .map((id) => state.products.find((product) => product.productId === id))
-        .filter(Boolean)
+        .filter((product) => product && product.isActive)
         .slice(0, 4);
 
     renderProductCollection(
@@ -264,9 +265,9 @@ function renderOrders() {
     renderCollections();
     renderReviewHistory();
 
-    if (!state.account) {
+    if (!state.account || !state.session?.authenticated) {
         renderSummary([]);
-        dom.ordersGrid.innerHTML = '<article class="panel-card"><strong>請先連接錢包</strong><p>連接後就能看到你所有購買過的訂單與物流節點。</p></article>';
+        dom.ordersGrid.innerHTML = '<article class="panel-card"><strong>請先連接錢包並完成登入</strong><p>登入後就能看到你所有購買過的訂單、物流節點與評價紀錄。</p></article>';
         return;
     }
 
@@ -368,7 +369,7 @@ function renderOrders() {
 async function loadData() {
     try {
         state.products = await core.fetchProducts();
-        if (state.account) {
+        if (state.account && state.session?.authenticated) {
             state.orders = await core.fetchOrders();
             state.reviews = await core.fetchReviews();
         }
@@ -429,6 +430,7 @@ async function hydrate() {
     const session = await core.initWalletState();
     state.account = session.account;
     state.chainId = session.chainId;
+    state.session = session.session || null;
     setHeaderState();
     renderOrders();
 
@@ -442,6 +444,7 @@ dom.connectButton.addEventListener("click", async () => {
         const session = await core.connectWallet();
         state.account = session.account;
         state.chainId = session.chainId;
+        state.session = session.session || null;
         setHeaderState();
         await loadData();
         toast("success", "錢包已連接");
@@ -455,6 +458,7 @@ dom.switchNetworkButton.addEventListener("click", async () => {
         await core.switchToExpectedNetwork();
         const session = await core.initWalletState();
         state.chainId = session.chainId;
+        state.session = session.session || null;
         setHeaderState();
         toast("success", "已切換到 Sepolia");
     } catch (error) {

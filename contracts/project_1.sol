@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity >=0.8.20 <=0.8.35;
 
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+
 interface IERC20EscrowToken {
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
     function transfer(address to, uint256 amount) external returns (bool);
@@ -24,15 +28,16 @@ contract Owner {
 contract contractName_order is Owner {
     uint256 public Order_ID = 0;
     address public immutable payment_token;
+    using SafeERC20 for IERC20;
 
     struct OrderInfo {
-        uint256 orderId;
-        address buy_user;
-        address sell_user;
-        uint256 amount;
-        bool pay_state;
-        bool complete_state;
-        bool seller_withdrawn;
+    uint256 orderId;
+    uint256 amount;
+    address buy_user;
+    address sell_user;
+    bool pay_state;
+    bool complete_state;
+    bool seller_withdrawn;
     }
 
     mapping(uint256 => OrderInfo) public orders;
@@ -62,18 +67,17 @@ contract contractName_order is Owner {
     function create_and_fund_order(
         address seller,
         uint256 _amount
+
     ) external returns (uint256) {
         require(seller != address(0), "Seller required");
         require(_amount > 0, "Amount must be greater than 0");
 
-        bool funded = IERC20EscrowToken(payment_token).transferFrom(
-            msg.sender,
-            address(this),
-            _amount
-        );
-        require(funded, "Token transfer failed");
+        IERC20(payment_token).safeTransferFrom(msg.sender, address(this), _amount);
 
-        Order_ID++;
+        unchecked {
+            Order_ID++;
+            }
+
         orders[Order_ID] = OrderInfo({
             orderId: Order_ID,
             buy_user: msg.sender,
@@ -113,6 +117,8 @@ contract contractName_order is Owner {
         return _complete_order(orderId, msg.sender);
     }
 
+
+
     function withdraw_order_funds(uint256 orderId) external returns (bool) {
         OrderInfo storage order = orders[orderId];
 
@@ -123,9 +129,9 @@ contract contractName_order is Owner {
 
         uint256 amount = order.amount;
         order.seller_withdrawn = true;
-
-        bool success = IERC20EscrowToken(payment_token).transfer(msg.sender, amount);
-        require(success, "Token transfer failed");
+        
+        //原本的transferFrom會有資金問題
+        IERC20(payment_token).safeTransfer(msg.sender, amount);//安全
 
         emit SellerWithdrawn(orderId, msg.sender, amount);
         return true;

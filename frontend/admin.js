@@ -1,5 +1,14 @@
 const core = window.FashionStoreCore;
 
+function escapeHtml(str) {
+    return String(str == null ? "" : str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
 const dom = {
     connectButton: document.getElementById("connectButton"),
     switchNetworkButton: document.getElementById("switchNetworkButton"),
@@ -13,6 +22,7 @@ const dom = {
     refreshButton: document.getElementById("refreshButton"),
     sellerRequestList: document.getElementById("sellerRequestList"),
     productModerationGrid: document.getElementById("productModerationGrid"),
+    adminAuditLog: document.getElementById("adminAuditLog"),
     adminOrderMonitor: document.getElementById("adminOrderMonitor"),
     adminPayoutMonitor: document.getElementById("adminPayoutMonitor"),
     toastStack: document.getElementById("toastStack")
@@ -21,14 +31,17 @@ const dom = {
 const state = {
     account: null,
     chainId: null,
+    session: null,
     isAdmin: false,
     products: [],
     orders: [],
     payouts: [],
     reviews: [],
+    auditLogs: [],
     sellers: { approved: [], pending: [] }
 };
 
+//訊息通知
 function toast(type, message) {
     const node = document.createElement("article");
     node.className = `toast ${type}`;
@@ -37,22 +50,37 @@ function toast(type, message) {
     window.setTimeout(() => node.remove(), 3200);
 }
 
+
+//處理error message
 function normalizeError(error) {
     const raw = error?.reason || error?.shortMessage || error?.message || "發生未知錯誤";
     return raw.replace(/^execution reverted: /, "");
 }
 
+//後台管理
 function setHeaderState() {
     dom.walletAddress.textContent = state.account ? core.formatAddress(state.account) : "尚未連接";
     dom.chainId.textContent = state.chainId || "-";
     const contractAddress = core.getConfiguredContractAddress();
     dom.contractAddressLabel.textContent = contractAddress ? core.formatAddress(contractAddress) : "未設定";
-    dom.adminStatusLabel.textContent = state.account ? (state.isAdmin ? "Owner / Admin" : "非管理員") : "未連接";
+    dom.adminStatusLabel.textContent = !state.account
+        ? "未連接"
+        : !state.session?.authenticated
+            ? "未登入"
+            : state.isAdmin
+                ? "Owner / Admin"
+                : "非管理員";
 }
 
 function renderGate() {
     if (!state.account) {
         dom.adminGateCard.innerHTML = '<article class="member-focus-card"><span>Access</span><h3>請先連接錢包</h3><p>只有連接錢包後，系統才能檢查你是不是合約 owner。</p></article>';
+        dom.adminWorkspace.classList.add("hidden");
+        return;
+    }
+
+    if (!state.session?.authenticated) {
+        dom.adminGateCard.innerHTML = '<article class="member-focus-card"><span>Access</span><h3>請先完成錢包登入</h3><p>這個後台現在會使用後端 session 驗證管理員身份，請重新連接錢包並完成簽名登入。</p></article>';
         dom.adminWorkspace.classList.add("hidden");
         return;
     }
@@ -131,11 +159,11 @@ function renderSellerRequests() {
         card.className = "request-card";
         card.innerHTML = `
             <div>
-                <strong>${address}</strong>
+                <strong>${escapeHtml(address)}</strong>
                 <p>這個地址正等待管理員核准成為賣家。</p>
             </div>
             <div class="detail-actions">
-                <button class="button primary" data-action="approve-seller" data-address="${address}" type="button">核准賣家</button>
+                <button class="button primary" data-action="approve-seller" data-address="${escapeHtml(address)}" type="button">核准賣家</button>
             </div>
         `;
         dom.sellerRequestList.append(card);
@@ -158,18 +186,18 @@ function renderProductModeration() {
         const card = document.createElement("article");
         card.className = "inventory-card";
         card.innerHTML = `
-            <img src="${product.image}" alt="${product.name}" />
+            <img src="${escapeHtml(product.image)}" alt="${escapeHtml(product.name)}" />
             <div class="inventory-meta">
                 <div>
-                    <strong>${product.name}</strong>
-                    <p>#${product.productId} • ${product.meta.department} • ${product.meta.season}</p>
+                    <strong>${escapeHtml(product.name)}</strong>
+                    <p>#${product.productId} • ${escapeHtml(product.meta.department)} • ${escapeHtml(product.meta.season)}</p>
                 </div>
                 <span class="tag-pill">${product.isActive ? "販售中" : "已下架"}</span>
             </div>
-            <p>賣家：${core.formatAddress(product.seller)}</p>
-            <p>尺寸：${product.meta.sizes.join(" / ")} ・ 顏色：${product.meta.colors.join(" / ")} ・ 庫存：${product.meta.stock}</p>
+            <p>賣家：${escapeHtml(core.formatAddress(product.seller))}</p>
+            <p>尺寸：${escapeHtml(product.meta.sizes.join(" / "))} ・ 顏色：${escapeHtml(product.meta.colors.join(" / "))} ・ 庫存：${product.meta.stock}</p>
             <div class="price-row">
-                <strong>${core.formatEth(product.priceWei)}</strong>
+                <strong>${escapeHtml(core.formatEth(product.priceWei))}</strong>
                 <div class="detail-actions">
                     <button class="button ghost" data-action="toggle-product" data-product-id="${product.productId}" data-next="${product.isActive ? "false" : "true"}" type="button">
                         ${product.isActive ? "下架商品" : "重新上架"}
@@ -195,13 +223,14 @@ function renderOrderMonitor() {
     dom.adminOrderMonitor.innerHTML = "";
     state.orders.slice(0, 6).forEach((order) => {
         const flow = core.getOrderStageMeta(order.stage || 1);
+        const productLabel = escapeHtml(order.productName || `商品 #${order.productId || order.orderId}`);
         const card = document.createElement("article");
         card.className = "member-focus-card";
         card.innerHTML = `
             <span>訂單 #${order.orderId}</span>
-            <h3>${order.productName || `商品 #${order.productId || order.orderId}`}</h3>
-            <p>賣家：${core.formatAddress(order.seller)} ・ 買家：${core.formatAddress(order.buyer)}</p>
-            <p>狀態：${flow.label} ・ 金額：${core.formatEth(order.amountWei)}</p>
+            <h3>${productLabel}</h3>
+            <p>賣家：${escapeHtml(core.formatAddress(order.seller))} ・ 買家：${escapeHtml(core.formatAddress(order.buyer))}</p>
+            <p>狀態：${escapeHtml(flow.label)} ・ 金額：${escapeHtml(core.formatEth(order.amountWei))}</p>
         `;
         dom.adminOrderMonitor.append(card);
     });
@@ -236,29 +265,71 @@ function renderPayoutMonitor() {
     `;
 }
 
+function formatAuditCategory(category) {
+    if (category === "seller") return "賣家";
+    if (category === "product") return "商品";
+    return "系統";
+}
+
+function renderAuditTrail() {
+    if (!state.isAdmin) {
+        dom.adminAuditLog.innerHTML = "";
+        return;
+    }
+
+    if (!state.auditLogs.length) {
+        dom.adminAuditLog.innerHTML = '<article class="member-focus-card"><span>Audit</span><h3>目前還沒有異動紀錄</h3><p>賣家申請、核准與商品異動後，這裡會留下可追蹤的後端紀錄。</p></article>';
+        return;
+    }
+
+    dom.adminAuditLog.innerHTML = "";
+    state.auditLogs.forEach((entry) => {
+        const card = document.createElement("article");
+        card.className = "member-focus-card";
+        const productHint = entry.productId ? ` ・ 商品 #${entry.productId}` : "";
+        card.innerHTML = `
+            <span>${escapeHtml(formatAuditCategory(entry.category))}紀錄</span>
+            <h3>${escapeHtml(entry.summary)}</h3>
+            <p>操作者：${escapeHtml(core.formatAddress(entry.actor))} ・ 對象：${escapeHtml(entry.subject || "-")}${productHint}</p>
+            <p>${escapeHtml(new Date(entry.createdAt).toLocaleString("zh-TW"))}</p>
+        `;
+        dom.adminAuditLog.append(card);
+    });
+}
+
 async function loadAdminState() {
     if (!state.account) {
+        state.session = null;
         state.isAdmin = false;
+        state.auditLogs = [];
         state.sellers = { approved: [], pending: [] };
+        setHeaderState();
         renderGate();
         renderMetrics();
         renderSellerRequests();
         renderProductModeration();
+        renderAuditTrail();
         renderOrderMonitor();
         renderPayoutMonitor();
         return;
     }
 
     try {
-        const profile = await core.fetchSellerProfile(state.account);
-        state.isAdmin = profile.isContractOwner;
+        state.session = await core.fetchSessionProfile();
+        state.isAdmin = Boolean(
+            state.session?.authenticated &&
+            state.session?.address?.toLowerCase() === state.account.toLowerCase() &&
+            state.session?.isAdmin
+        );
         setHeaderState();
         renderGate();
 
         if (!state.isAdmin) {
+            state.auditLogs = [];
             renderMetrics();
             renderSellerRequests();
             renderProductModeration();
+            renderAuditTrail();
             renderOrderMonitor();
             renderPayoutMonitor();
             return;
@@ -266,6 +337,7 @@ async function loadAdminState() {
 
         state.products = await core.fetchProducts();
         state.sellers = await core.fetchSellersStore();
+        state.auditLogs = await core.fetchAdminAuditLogs();
         state.orders = core.getConfiguredContractAddress() ? await core.fetchOrders() : [];
         state.payouts = await core.fetchPayouts();
         state.reviews = await core.fetchReviews();
@@ -273,6 +345,7 @@ async function loadAdminState() {
         renderMetrics();
         renderSellerRequests();
         renderProductModeration();
+        renderAuditTrail();
         renderOrderMonitor();
         renderPayoutMonitor();
     } catch (error) {
@@ -284,6 +357,7 @@ async function hydrate() {
     const session = await core.initWalletState();
     state.account = session.account;
     state.chainId = session.chainId;
+    state.session = session.session || null;
     setHeaderState();
     renderGate();
     await loadAdminState();
@@ -291,8 +365,9 @@ async function hydrate() {
 
 async function handleActionClick(event) {
     const trigger = event.target.closest("[data-action]");
-    if (!trigger) return;
+    if (!trigger || trigger.disabled) return;
 
+    trigger.disabled = true;
     try {
         const action = trigger.dataset.action;
         if (action === "approve-seller") {
@@ -307,6 +382,8 @@ async function handleActionClick(event) {
         }
     } catch (error) {
         toast("error", normalizeError(error));
+    } finally {
+        trigger.disabled = false;
     }
 }
 
@@ -315,6 +392,7 @@ dom.connectButton.addEventListener("click", async () => {
         const session = await core.connectWallet();
         state.account = session.account;
         state.chainId = session.chainId;
+        state.session = session.session || null;
         setHeaderState();
         await loadAdminState();
         toast("success", "管理錢包已連接");
@@ -328,6 +406,7 @@ dom.switchNetworkButton.addEventListener("click", async () => {
         await core.switchToExpectedNetwork();
         const session = await core.initWalletState();
         state.chainId = session.chainId;
+        state.session = session.session || null;
         setHeaderState();
         toast("success", "已切換到 Sepolia");
     } catch (error) {

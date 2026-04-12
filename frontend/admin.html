@@ -13,6 +13,17 @@
     <div class="bg-shape bg-shape-a"></div>
     <div class="bg-shape bg-shape-b"></div>
 
+    <header class="floating-nav">
+        <a class="floating-brand" href="/frontend/index.html">EF</a>
+        <nav class="floating-nav-links">
+            <a href="/frontend/index.html">首頁</a>
+            <a href="/frontend/buyer-center.html">買家中心</a>
+            <a href="/frontend/seller-center.html">賣家中心</a>
+            <a href="/frontend/seller.html">賣家後台</a>
+            <a class="current" href="/frontend/admin.html">Admin</a>
+        </nav>
+    </header>
+
     <div class="page-shell">
         <header class="top-nav">
             <a class="brand" href="/frontend/index.html">
@@ -22,13 +33,6 @@
                     <small>商店管理與審核後台</small>
                 </div>
             </a>
-
-            <nav class="nav-links">
-                <a href="/frontend/index.html">回到商店</a>
-                <a href="/frontend/buyer-center.html">買家中心</a>
-                <a href="/frontend/seller-center.html">賣家中心</a>
-                <a href="/frontend/seller.html">商品後台</a>
-            </nav>
 
             <div class="nav-actions">
                 <button id="switchNetworkButton" class="button ghost" type="button">切到 Sepolia</button>
@@ -48,6 +52,7 @@
                     <a href="#adminOverview" class="member-nav-link active">總覽</a>
                     <a href="#sellerReview" class="member-nav-link">賣家審核</a>
                     <a href="#productModeration" class="member-nav-link">商品管理</a>
+                    <a href="#auditTrail" class="member-nav-link">異動紀錄</a>
                     <a href="#storeMonitor" class="member-nav-link">商店監控</a>
                 </nav>
 
@@ -100,6 +105,16 @@
                             </div>
                         </div>
                         <div id="productModerationGrid" class="inventory-grid"></div>
+                    </section>
+
+                    <section id="auditTrail" class="panel-card">
+                        <div class="section-head">
+                            <div>
+                                <p class="eyebrow">Audit Trail</p>
+                                <h2>審核與商品異動紀錄</h2>
+                            </div>
+                        </div>
+                        <div id="adminAuditLog" class="member-focus-grid"></div>
                     </section>
 
                     <section id="storeMonitor" class="member-dual-grid">

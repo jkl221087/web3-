@@ -60,7 +60,8 @@
         paymentTokenAddress: null,
         paymentTokenMeta: null,
         validatedAddress: null,
-        currentAccount: null
+        currentAccount: null,
+        session: null
     };
 
     function parseJson(key, fallback) {
@@ -88,6 +89,7 @@
 
         const response = await window.fetch(path, {
             ...options,
+            credentials: "same-origin",
             headers
         });
 
@@ -296,6 +298,7 @@
     }
 
     async function saveOrderFlowStage(orderId, stage) {
+        // Stage 5（已取貨）與 6（已完成）由合約事件驅動，API 只負責 1–4 物流節點
         const nextStage = Math.max(1, Math.min(4, Number(stage) || 1));
         return apiRequest(`/api/orders/${orderId}/flow`, {
             method: "PATCH",
@@ -339,12 +342,31 @@
         return deserializeProduct(product);
     }
 
-    async function setMockProductActive(productId, isActive) {
+    async function updateMockProduct(productId, input) {
+        const payload = {};
+
+        if (Object.prototype.hasOwnProperty.call(input, "name")) {
+            payload.name = String(input.name || "").trim();
+        }
+        if (Object.prototype.hasOwnProperty.call(input, "priceWei")) {
+            payload.priceWei = input.priceWei?.toString?.() || String(input.priceWei || "0");
+        }
+        if (Object.prototype.hasOwnProperty.call(input, "isActive")) {
+            payload.isActive = Boolean(input.isActive);
+        }
+        if (Object.prototype.hasOwnProperty.call(input, "meta")) {
+            payload.meta = normalizeMeta(input.meta);
+        }
+
         const updated = await apiRequest(`/api/products/${productId}`, {
             method: "PATCH",
-            body: JSON.stringify({ isActive })
+            body: JSON.stringify(payload)
         });
         return deserializeProduct(updated);
+    }
+
+    async function setMockProductActive(productId, isActive) {
+        return updateMockProduct(productId, { isActive });
     }
 
     async function getOwnerAddress() {
@@ -362,8 +384,21 @@
             return { approved: false, pending: false, isContractOwner: false };
         }
 
-        const ownerAddress = await getOwnerAddress();
         const lower = address.toLowerCase();
+        const session = runtime.session;
+        if (
+            session?.authenticated &&
+            session.address &&
+            session.address.toLowerCase() === lower
+        ) {
+            return {
+                approved: Boolean(session.isAdmin || session.sellerStatus === "approved"),
+                pending: session.sellerStatus === "pending",
+                isContractOwner: Boolean(session.isAdmin)
+            };
+        }
+
+        const ownerAddress = await getOwnerAddress();
         const ownerLower = ownerAddress?.toLowerCase() || "";
         const store = await apiRequest("/api/sellers");
         const approved = Array.isArray(store.approved) ? store.approved : [];
@@ -400,6 +435,12 @@
         return apiRequest("/api/sellers/approve", {
             method: "POST",
             body: JSON.stringify({ address, approved })
+        });
+    }
+
+    async function fetchAdminAuditLogs() {
+        return apiRequest("/api/admin/audit", {
+            method: "GET"
         });
     }
 
@@ -477,9 +518,61 @@
         return ORDER_STAGE_META[Number(stage)] || ORDER_STAGE_META[0];
     }
 
+    async function fetchSessionProfile() {
+        const session = await apiRequest("/api/me", {
+            method: "GET",
+            authActor: false
+        });
+        runtime.session = session;
+        return session;
+    }
+
+    async function signInWithBackend() {
+        if (!runtime.signer || !runtime.currentAccount) {
+            throw new Error("請先連接 MetaMask");
+        }
+
+        const chainId = await window.ethereum.request({ method: "eth_chainId" });
+        const noncePayload = await apiRequest("/api/auth/nonce", {
+            method: "POST",
+            authActor: false,
+            body: JSON.stringify({
+                address: runtime.currentAccount,
+                chainId
+            })
+        });
+
+        const signature = await runtime.signer.signMessage(noncePayload.message);
+        const session = await apiRequest("/api/auth/verify", {
+            method: "POST",
+            authActor: false,
+            body: JSON.stringify({
+                address: runtime.currentAccount,
+                message: noncePayload.message,
+                signature
+            })
+        });
+
+        runtime.session = session;
+        return session;
+    }
+
+    async function logoutBackendSession() {
+        runtime.session = null;
+        return apiRequest("/api/auth/logout", {
+            method: "POST",
+            authActor: false,
+            body: JSON.stringify({})
+        });
+    }
+
+    function getSessionSnapshot() {
+        return runtime.session;
+    }
+
     async function initWalletState() {
         if (!window.ethereum) {
-            return { account: null, chainId: null };
+            return { account: null, chainId: null, session: null };
         }
 
         if (!runtime.provider) {
@@ -494,7 +587,18 @@
             runtime.currentAccount = accounts[0];
         }
 
-        return { account: runtime.currentAccount, chainId };
+        runtime.session = await fetchSessionProfile().catch(() => null);
+
+        if (
+            runtime.currentAccount &&
+            runtime.session?.authenticated &&
+            runtime.session.address &&
+            runtime.session.address.toLowerCase() !== runtime.currentAccount.toLowerCase()
+        ) {
+            runtime.session = null;
+        }
+
+        return { account: runtime.currentAccount, chainId, session: runtime.session };
     }
 
     async function verifyContractAddress(address) {
@@ -581,7 +685,8 @@
         runtime.validatedAddress = null;
 
         const chainId = await window.ethereum.request({ method: "eth_chainId" });
-        return { account: runtime.currentAccount, chainId };
+        await signInWithBackend();
+        return { account: runtime.currentAccount, chainId, session: runtime.session };
     }
 
     async function switchToExpectedNetwork() {
@@ -729,6 +834,10 @@
         ORDER_STAGE_META,
         runtime,
         initWalletState,
+        fetchSessionProfile,
+        getSessionSnapshot,
+        signInWithBackend,
+        logoutBackendSession,
         ensureContract,
         connectWallet,
         switchToExpectedNetwork,
@@ -743,7 +852,9 @@
         fetchSellersStore,
         requestSellerAccess,
         approveSellerAccess,
+        fetchAdminAuditLogs,
         createMockProduct,
+        updateMockProduct,
         setMockProductActive,
         saveOrderMeta,
         fetchReviews,
@@ -773,6 +884,7 @@
         inferMetaFromName,
         buildPlaceholderImage,
         getOrderStageMeta,
-        serializeOrder
+        serializeOrder,
+        escapeXml
     };
 }());

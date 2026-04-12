@@ -16,6 +16,11 @@ use axum::{
     response::IntoResponse,
     routing::{get, patch, post},
 };
+use ethers::{
+    core::rand::{RngCore, thread_rng},
+    types::{Address, Signature},
+    utils::hash_message,
+};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -55,8 +60,12 @@ struct CreateProduct {
 
 #[derive(Debug, Deserialize)]
 struct UpdateProduct {
+    name: Option<String>,
+    #[serde(rename = "priceWei")]
+    price_wei: Option<String>,
     #[serde(rename = "isActive")]
     is_active: Option<bool>,
+    meta: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -182,10 +191,49 @@ struct CreatePayoutPayload {
     created_at: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct AuthNoncePayload {
+    address: String,
+    #[serde(rename = "chainId")]
+    chain_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AuthVerifyPayload {
+    address: String,
+    message: String,
+    signature: String,
+}
+
+#[derive(Debug, Serialize)]
+struct SessionProfile {
+    authenticated: bool,
+    address: String,
+    #[serde(rename = "isAdmin")]
+    is_admin: bool,
+    #[serde(rename = "sellerStatus")]
+    seller_status: String,
+}
+
 #[derive(Debug, Serialize)]
 struct UploadResponse {
     url: String,
     filename: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AuditLog {
+    id: u64,
+    category: String,
+    action: String,
+    actor: String,
+    subject: String,
+    #[serde(rename = "productId")]
+    product_id: Option<u64>,
+    summary: String,
+    detail: Value,
+    #[serde(rename = "createdAt")]
+    created_at: String,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -199,6 +247,8 @@ struct LegacySeedData {
 
 #[tokio::main]
 async fn main() {
+    let _ = dotenv::dotenv();
+
     let port = env::var("PORT")
         .ok()
         .and_then(|value| value.parse::<u16>().ok())
@@ -232,11 +282,16 @@ async fn main() {
     };
 
     let app = Router::new()
+        .route("/api/auth/nonce", post(issue_auth_nonce))
+        .route("/api/auth/verify", post(verify_auth_signature))
+        .route("/api/auth/logout", post(logout_session))
+        .route("/api/me", get(get_session_profile))
         .route("/api/products", get(get_products).post(create_product))
         .route("/api/products/{id}", patch(update_product))
         .route("/api/sellers", get(get_sellers))
         .route("/api/sellers/request", post(request_seller))
         .route("/api/sellers/approve", post(approve_seller))
+        .route("/api/admin/audit", get(get_admin_audit_logs))
         .route("/api/orders", get(get_orders).post(upsert_order))
         .route("/api/orders/{id}/flow", patch(update_order_flow))
         .route("/api/reviews", get(get_reviews).post(upsert_review))
@@ -329,9 +384,38 @@ async fn initialize_database(db_path: &Path, seed: LegacySeedData) -> anyhow::Re
                 tx_hash TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS auth_nonces (
+                address TEXT PRIMARY KEY,
+                nonce TEXT NOT NULL,
+                message TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS auth_sessions (
+                session_id TEXT PRIMARY KEY,
+                address TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT NOT NULL,
+                action TEXT NOT NULL,
+                actor TEXT NOT NULL,
+                subject TEXT NOT NULL DEFAULT '',
+                product_id INTEGER,
+                summary TEXT NOT NULL,
+                detail_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            );
             "#,
         )
         .context("create sqlite tables")?;
+
+        cleanup_expired_auth_records(&conn).context("cleanup expired auth records")?;
 
         if table_count(&conn, "products")? == 0 {
             for product in seed.products {
@@ -460,7 +544,36 @@ fn is_valid_evm_address(address: &str) -> bool {
             .all(|byte| byte.is_ascii_hexdigit())
 }
 
-fn require_actor_address(headers: &HeaderMap) -> AppResult<String> {
+fn random_hex(bytes_len: usize) -> String {
+    let mut bytes = vec![0u8; bytes_len];
+    thread_rng().fill_bytes(&mut bytes);
+    let mut output = String::with_capacity(bytes_len * 2);
+    for byte in bytes {
+        output.push_str(&format!("{byte:02x}"));
+    }
+    output
+}
+
+fn build_auth_message(address: &str, nonce: &str, chain_id: Option<&str>) -> String {
+    let chain_line = chain_id.unwrap_or("unknown");
+    format!(
+        "Escrow Fashion Store Login\nAddress: {address}\nNonce: {nonce}\nChain ID: {chain_line}\nIssued At: {}",
+        now_iso_like()
+    )
+}
+
+fn parse_cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
+    let raw = headers.get(header::COOKIE)?.to_str().ok()?;
+    raw.split(';')
+        .find_map(|segment| {
+            let mut parts = segment.trim().splitn(2, '=');
+            let key = parts.next()?.trim();
+            let value = parts.next()?.trim();
+            (key == name).then(|| value.to_string())
+        })
+}
+
+fn require_header_actor_address(headers: &HeaderMap) -> AppResult<String> {
     let Some(value) = headers.get("x-actor-address") else {
         return Err(json_error(
             StatusCode::UNAUTHORIZED,
@@ -483,8 +596,34 @@ fn require_actor_address(headers: &HeaderMap) -> AppResult<String> {
     Ok(actor)
 }
 
-fn require_admin_actor(state: &AppState, headers: &HeaderMap) -> AppResult<String> {
-    let actor = require_actor_address(headers)?;
+async fn session_actor_from_headers(state: &AppState, headers: &HeaderMap) -> AppResult<Option<String>> {
+    let Some(session_id) = parse_cookie_value(headers, "fashion_store_session") else {
+        return Ok(None);
+    };
+
+    let session_id = session_id.trim().to_string();
+    if session_id.is_empty() {
+        return Ok(None);
+    }
+
+    with_connection(state, move |conn| {
+        cleanup_expired_auth_records(conn)
+            .map_err(|error| log_internal_error("Failed to cleanup expired auth records", error))?;
+        fetch_session_address(conn, &session_id)
+            .map_err(|error| log_internal_error("Failed to load auth session", error))
+    })
+    .await
+}
+
+async fn require_actor_address(state: &AppState, headers: &HeaderMap) -> AppResult<String> {
+    if let Some(actor) = session_actor_from_headers(state, headers).await? {
+        return Ok(actor);
+    }
+    require_header_actor_address(headers)
+}
+
+async fn require_admin_actor(state: &AppState, headers: &HeaderMap) -> AppResult<String> {
+    let actor = require_actor_address(state, headers).await?;
     let Some(admin_address) = state.admin_address.as_ref() else {
         return Err(json_error(
             StatusCode::FORBIDDEN,
@@ -500,6 +639,16 @@ fn require_admin_actor(state: &AppState, headers: &HeaderMap) -> AppResult<Strin
     }
 
     Ok(actor)
+}
+
+fn build_session_cookie(session_id: &str, max_age_seconds: i64) -> String {
+    format!(
+        "fashion_store_session={session_id}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age_seconds}"
+    )
+}
+
+fn clear_session_cookie() -> String {
+    "fashion_store_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0".to_string()
 }
 
 fn ensure_non_empty(value: &str, field_name: &str) -> AppResult<()> {
@@ -553,6 +702,182 @@ fn open_connection(db_path: &Path) -> anyhow::Result<Connection> {
     Ok(conn)
 }
 
+async fn issue_auth_nonce(
+    State(state): State<AppState>,
+    axum::Json(payload): axum::Json<AuthNoncePayload>,
+) -> AppResult<impl IntoResponse> {
+    let address = normalize_address(&payload.address);
+    ensure_non_empty(&address, "Address")?;
+    if !is_valid_evm_address(&address) {
+        return Err(json_error(StatusCode::BAD_REQUEST, "Address must be a valid EVM address"));
+    }
+
+    let nonce = random_hex(16);
+    let message = build_auth_message(&address, &nonce, payload.chain_id.as_deref());
+    let issued_at = now_iso_like();
+    let expires_at = auth_expiry_iso(10);
+    let response = json!({
+        "address": address,
+        "nonce": nonce,
+        "message": message,
+        "expiresAt": expires_at
+    });
+
+    with_connection(&state, move |conn| {
+        cleanup_expired_auth_records(conn)
+            .map_err(|error| log_internal_error("Failed to cleanup expired auth records", error))?;
+        conn.execute(
+            "INSERT INTO auth_nonces (address, nonce, message, created_at, expires_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(address) DO UPDATE SET
+                 nonce = excluded.nonce,
+                 message = excluded.message,
+                 created_at = excluded.created_at,
+                 expires_at = excluded.expires_at",
+            params![address, nonce, message, issued_at, expires_at],
+        )
+        .map_err(|error| log_internal_error("Failed to save auth nonce", error))?;
+        Ok(())
+    })
+    .await?;
+
+    Ok((StatusCode::OK, axum::Json(response)))
+}
+
+async fn verify_auth_signature(
+    State(state): State<AppState>,
+    axum::Json(payload): axum::Json<AuthVerifyPayload>,
+) -> AppResult<impl IntoResponse> {
+    let address = normalize_address(&payload.address);
+    ensure_non_empty(&address, "Address")?;
+    ensure_non_empty(&payload.message, "Message")?;
+    ensure_non_empty(&payload.signature, "Signature")?;
+    if !is_valid_evm_address(&address) {
+        return Err(json_error(StatusCode::BAD_REQUEST, "Address must be a valid EVM address"));
+    }
+
+    let signature: Signature = payload
+        .signature
+        .parse()
+        .map_err(|_| json_error(StatusCode::BAD_REQUEST, "Invalid signature"))?;
+    let recovered: Address = signature
+        .recover(hash_message(&payload.message))
+        .map_err(|_| json_error(StatusCode::UNAUTHORIZED, "Signature verification failed"))?;
+    let recovered_address = normalize_address(&format!("{:#x}", recovered));
+    if recovered_address != address {
+        return Err(json_error(
+            StatusCode::UNAUTHORIZED,
+            "Signature does not match the requested wallet address",
+        ));
+    }
+
+    let session_id = random_hex(32);
+    let session_cookie_id = session_id.clone();
+    let created_at = now_iso_like();
+    let expires_at = auth_expiry_iso(60 * 60 * 24 * 7);
+    let admin_address = state.admin_address.clone();
+    let response = with_connection(&state, move |conn| {
+        cleanup_expired_auth_records(conn)
+            .map_err(|error| log_internal_error("Failed to cleanup expired auth records", error))?;
+
+        let stored = fetch_auth_nonce(conn, &address)
+            .map_err(|error| log_internal_error("Failed to load auth nonce", error))?
+            .ok_or_else(|| json_error(StatusCode::UNAUTHORIZED, "Login nonce was not found or expired"))?;
+
+        if stored != payload.message {
+            return Err(json_error(StatusCode::UNAUTHORIZED, "Login message does not match the latest nonce"));
+        }
+
+        conn.execute("DELETE FROM auth_nonces WHERE address = ?1", params![address.clone()])
+            .map_err(|error| log_internal_error("Failed to clear auth nonce", error))?;
+
+        conn.execute(
+            "INSERT INTO auth_sessions (session_id, address, created_at, expires_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![session_id.clone(), address.clone(), created_at, expires_at],
+        )
+        .map_err(|error| log_internal_error("Failed to create auth session", error))?;
+
+        let seller_status = fetch_seller_status(conn, &address)
+            .map_err(|error| log_internal_error("Failed to load seller status", error))?
+            .unwrap_or_else(|| "buyer".to_string());
+        let is_admin = admin_address.as_deref() == Some(address.as_str());
+
+        Ok(SessionProfile {
+            authenticated: true,
+            address,
+            is_admin,
+            seller_status,
+        })
+    })
+    .await?;
+
+    let mut response_headers = HeaderMap::new();
+    response_headers.insert(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&build_session_cookie(&session_cookie_id, 60 * 60 * 24 * 7))
+            .map_err(|error| log_internal_error("Failed to set auth cookie", error))?,
+    );
+
+    Ok((StatusCode::OK, response_headers, axum::Json(response)))
+}
+
+async fn get_session_profile(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> AppResult<impl IntoResponse> {
+    let Some(address) = session_actor_from_headers(&state, &headers).await? else {
+        return Ok((
+            StatusCode::OK,
+            axum::Json(SessionProfile {
+                authenticated: false,
+                address: String::new(),
+                is_admin: false,
+                seller_status: "guest".to_string(),
+            }),
+        ));
+    };
+
+    let admin_address = state.admin_address.clone();
+    let profile = with_connection(&state, move |conn| {
+        let seller_status = fetch_seller_status(conn, &address)
+            .map_err(|error| log_internal_error("Failed to load seller status", error))?
+            .unwrap_or_else(|| "buyer".to_string());
+        Ok(SessionProfile {
+            authenticated: true,
+            address: address.clone(),
+            is_admin: admin_address.as_deref() == Some(address.as_str()),
+            seller_status,
+        })
+    })
+    .await?;
+
+    Ok((StatusCode::OK, axum::Json(profile)))
+}
+
+async fn logout_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> AppResult<impl IntoResponse> {
+    if let Some(session_id) = parse_cookie_value(&headers, "fashion_store_session") {
+        with_connection(&state, move |conn| {
+            conn.execute("DELETE FROM auth_sessions WHERE session_id = ?1", params![session_id])
+                .map_err(|error| log_internal_error("Failed to delete auth session", error))?;
+            Ok(())
+        })
+        .await?;
+    }
+
+    let mut response_headers = HeaderMap::new();
+    response_headers.insert(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&clear_session_cookie())
+            .map_err(|error| log_internal_error("Failed to clear auth cookie", error))?,
+    );
+
+    Ok((StatusCode::OK, response_headers, axum::Json(json!({ "ok": true }))))
+}
+
 async fn get_products(State(state): State<AppState>) -> impl IntoResponse {
     match with_connection(&state, |conn| {
         let mut statement = conn
@@ -585,7 +910,7 @@ async fn create_product(
     headers: HeaderMap,
     axum::Json(payload): axum::Json<CreateProduct>,
 ) -> AppResult<impl IntoResponse> {
-    let actor = require_actor_address(&headers)?;
+    let actor = require_actor_address(&state, &headers).await?;
     let seller = normalize_address(&payload.seller);
     let name = payload.name.trim().to_string();
     ensure_non_empty(&seller, "Seller")?;
@@ -620,8 +945,24 @@ async fn create_product(
         )
         .map_err(|error| log_internal_error("Failed to create product", error))?;
         let product_id = conn.last_insert_rowid() as u64;
-        fetch_product_by_id(conn, product_id)?
-            .ok_or_else(|| json_error(StatusCode::INTERNAL_SERVER_ERROR, "Product was not created"))
+        let product = fetch_product_by_id(conn, product_id)?
+            .ok_or_else(|| json_error(StatusCode::INTERNAL_SERVER_ERROR, "Product was not created"))?;
+        insert_audit_log(
+            conn,
+            "product",
+            "create",
+            &seller,
+            &product.name,
+            Some(product.product_id),
+            &format!("建立商品「{}」", product.name),
+            &json!({
+                "seller": product.seller,
+                "priceWei": product.price_wei,
+                "isActive": product.is_active,
+                "meta": product.meta
+            }),
+        )?;
+        Ok(product)
     })
     .await?;
 
@@ -634,7 +975,7 @@ async fn update_product(
     AxumPath(id): AxumPath<u64>,
     axum::Json(payload): axum::Json<UpdateProduct>,
 ) -> AppResult<impl IntoResponse> {
-    let actor = require_actor_address(&headers)?;
+    let actor = require_actor_address(&state, &headers).await?;
     let admin_address = state.admin_address.clone();
     let product = with_connection(&state, move |conn| {
         let current = fetch_product_by_id(conn, id)?
@@ -647,21 +988,99 @@ async fn update_product(
             ));
         }
 
-        let Some(is_active) = payload.is_active else {
+        if payload.name.is_none()
+            && payload.price_wei.is_none()
+            && payload.is_active.is_none()
+            && payload.meta.is_none()
+        {
             return Ok(current);
+        }
+
+        let next_name = match payload.name {
+            Some(value) => {
+                let value = value.trim().to_string();
+                ensure_non_empty(&value, "Product name")?;
+                value
+            }
+            None => current.name.clone(),
         };
+        let next_price_wei = match payload.price_wei {
+            Some(value) => {
+                ensure_non_empty(&value, "Price")?;
+                ensure_uint_string(&value, "Price")?;
+                value
+            }
+            None => current.price_wei.clone(),
+        };
+        let next_is_active = payload.is_active.unwrap_or(current.is_active);
+        let next_meta_json = match payload.meta {
+            Some(value) => serde_json::to_string(&value)
+                .map_err(|error| log_internal_error("Failed to serialize product meta", error))?,
+            None => serde_json::to_string(&current.meta)
+                .map_err(|error| log_internal_error("Failed to serialize current product meta", error))?,
+        };
+        let next_meta_value: Value = serde_json::from_str(&next_meta_json)
+            .map_err(|error| log_internal_error("Failed to parse updated product meta", error))?;
+        let mut changed_fields = Vec::new();
+        if current.name != next_name {
+            changed_fields.push("name");
+        }
+        if current.price_wei != next_price_wei {
+            changed_fields.push("priceWei");
+        }
+        if current.is_active != next_is_active {
+            changed_fields.push("isActive");
+        }
+        if current.meta != next_meta_value {
+            changed_fields.push("meta");
+        }
 
         let updated = conn
             .execute(
-                "UPDATE products SET is_active = ?1 WHERE product_id = ?2",
-                params![bool_to_int(is_active), id as i64],
+                "UPDATE products
+                 SET name = ?1, price_wei = ?2, is_active = ?3, meta_json = ?4
+                 WHERE product_id = ?5",
+                params![
+                    next_name,
+                    next_price_wei,
+                    bool_to_int(next_is_active),
+                    next_meta_json,
+                    id as i64
+                ],
             )
             .map_err(|error| log_internal_error("Failed to update product", error))?;
         if updated == 0 {
             return Err(json_error(StatusCode::NOT_FOUND, "Product not found"));
         }
-        fetch_product_by_id(conn, id)?
-            .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Product not found"))
+        let product = fetch_product_by_id(conn, id)?
+            .ok_or_else(|| json_error(StatusCode::NOT_FOUND, "Product not found"))?;
+        let action = if changed_fields.len() == 1 && changed_fields[0] == "isActive" {
+            if product.is_active { "reactivate" } else { "deactivate" }
+        } else {
+            "update"
+        };
+        let summary = match action {
+            "deactivate" => format!("下架商品「{}」", product.name),
+            "reactivate" => format!("重新上架商品「{}」", product.name),
+            _ => format!("更新商品「{}」", product.name),
+        };
+        insert_audit_log(
+            conn,
+            "product",
+            action,
+            &actor,
+            &product.name,
+            Some(product.product_id),
+            &summary,
+            &json!({
+                "seller": product.seller,
+                "changedFields": changed_fields,
+                "priceWei": product.price_wei,
+                "isActive": product.is_active,
+                "meta": product.meta
+            }),
+        )?;
+        Ok(product)
     })
     .await?;
 
@@ -680,7 +1099,7 @@ async fn request_seller(
     headers: HeaderMap,
     axum::Json(payload): axum::Json<SellerRequestPayload>,
 ) -> AppResult<impl IntoResponse> {
-    let actor = require_actor_address(&headers)?;
+    let actor = require_actor_address(&state, &headers).await?;
     let address = normalize_address(&payload.address);
     ensure_non_empty(&address, "Address")?;
     if !is_valid_evm_address(&address) {
@@ -711,6 +1130,20 @@ async fn request_seller(
                 params![address, timestamp],
             )
             .map_err(|error| log_internal_error("Failed to request seller access", error))?;
+            insert_audit_log(
+                conn,
+                "seller",
+                "request",
+                &actor,
+                &address,
+                None,
+                &format!("地址 {} 送出賣家申請", address),
+                &json!({
+                    "address": address,
+                    "previousStatus": current_status,
+                    "nextStatus": "pending"
+                }),
+            )?;
         }
 
         load_sellers_store(conn)
@@ -725,7 +1158,7 @@ async fn approve_seller(
     headers: HeaderMap,
     axum::Json(payload): axum::Json<SellerApprovePayload>,
 ) -> AppResult<impl IntoResponse> {
-    require_admin_actor(&state, &headers)?;
+    let actor = require_admin_actor(&state, &headers).await?;
     let address = normalize_address(&payload.address);
     ensure_non_empty(&address, "Address")?;
     if !is_valid_evm_address(&address) {
@@ -736,6 +1169,13 @@ async fn approve_seller(
     let sellers = with_connection(&state, move |conn| {
         let timestamp = now_iso_like();
         let status = if approved { "approved" } else { "pending" };
+        let previous_status = fetch_seller_status(conn, &address)
+            .map_err(|error| log_internal_error("Failed to load seller status", error))?;
+        let summary = if approved {
+            format!("管理員核准 {} 成為賣家", address)
+        } else {
+            format!("管理員將 {} 設回審核中", address)
+        };
         conn.execute(
             "INSERT INTO sellers (address, status, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?3)
@@ -745,11 +1185,34 @@ async fn approve_seller(
             params![address, status, timestamp],
         )
         .map_err(|error| log_internal_error("Failed to approve seller", error))?;
+        insert_audit_log(
+            conn,
+            "seller",
+            if approved { "approve" } else { "mark_pending" },
+            &actor,
+            &address,
+            None,
+            &summary,
+            &json!({
+                "address": address,
+                "previousStatus": previous_status,
+                "nextStatus": status
+            }),
+        )?;
         load_sellers_store(conn)
     })
     .await?;
 
     Ok((StatusCode::OK, axum::Json(sellers)))
+}
+
+async fn get_admin_audit_logs(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> AppResult<impl IntoResponse> {
+    require_admin_actor(&state, &headers).await?;
+    let logs = with_connection(&state, |conn| load_audit_logs(conn)).await?;
+    Ok((StatusCode::OK, axum::Json(logs)))
 }
 
 async fn get_orders(State(state): State<AppState>) -> impl IntoResponse {
@@ -764,7 +1227,7 @@ async fn upsert_order(
     headers: HeaderMap,
     axum::Json(payload): axum::Json<CreateOrderPayload>,
 ) -> AppResult<impl IntoResponse> {
-    let _actor = require_actor_address(&headers)?;
+    let _actor = require_actor_address(&state, &headers).await?;
     if payload.order_id == 0 {
         return Err(json_error(StatusCode::BAD_REQUEST, "Order ID required"));
     }
@@ -828,7 +1291,7 @@ async fn update_order_flow(
     AxumPath(id): AxumPath<u64>,
     axum::Json(payload): axum::Json<UpdateOrderFlowPayload>,
 ) -> AppResult<impl IntoResponse> {
-    let actor = require_actor_address(&headers)?;
+    let actor = require_actor_address(&state, &headers).await?;
     let admin_address = state.admin_address.clone();
     let updated = with_connection(&state, move |conn| {
         let mut current = fetch_order_by_id(conn, id)
@@ -867,7 +1330,7 @@ async fn upsert_review(
     headers: HeaderMap,
     axum::Json(payload): axum::Json<CreateReviewPayload>,
 ) -> AppResult<impl IntoResponse> {
-    let actor = require_actor_address(&headers)?;
+    let actor = require_actor_address(&state, &headers).await?;
     if payload.order_id == 0 {
         return Err(json_error(StatusCode::BAD_REQUEST, "Order ID required"));
     }
@@ -946,7 +1409,7 @@ async fn upsert_payout(
     headers: HeaderMap,
     axum::Json(payload): axum::Json<CreatePayoutPayload>,
 ) -> AppResult<impl IntoResponse> {
-    let actor = require_actor_address(&headers)?;
+    let actor = require_actor_address(&state, &headers).await?;
     if payload.order_id == 0 {
         return Err(json_error(StatusCode::BAD_REQUEST, "Order ID required"));
     }
@@ -1017,7 +1480,7 @@ async fn upload_product_image(
     mut multipart: Multipart,
 ) -> AppResult<impl IntoResponse> {
     const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
-    let _actor = require_actor_address(&headers)?;
+    let _actor = require_actor_address(&state, &headers).await?;
 
     while let Some(field) = multipart
         .next_field()
@@ -1182,6 +1645,23 @@ fn map_payout_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Payout> {
     })
 }
 
+fn map_audit_log_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AuditLog> {
+    let detail_json: String = row.get(7)?;
+    Ok(AuditLog {
+        id: row.get::<_, i64>(0)? as u64,
+        category: row.get(1)?,
+        action: row.get(2)?,
+        actor: row.get(3)?,
+        subject: row.get(4)?,
+        product_id: row
+            .get::<_, Option<i64>>(5)?
+            .map(|value| value as u64),
+        summary: row.get(6)?,
+        detail: serde_json::from_str(&detail_json).unwrap_or_else(|_| json!({})),
+        created_at: row.get(8)?,
+    })
+}
+
 fn fetch_product_by_id(conn: &Connection, product_id: u64) -> AppResult<Option<Product>> {
     conn.query_row(
         "SELECT product_id, seller, name, price_wei, is_active, meta_json
@@ -1192,6 +1672,40 @@ fn fetch_product_by_id(conn: &Connection, product_id: u64) -> AppResult<Option<P
     )
     .optional()
     .map_err(|error| log_internal_error("Failed to query product", error))
+}
+
+fn fetch_auth_nonce(conn: &Connection, address: &str) -> rusqlite::Result<Option<String>> {
+    conn.query_row(
+        "SELECT message
+         FROM auth_nonces
+         WHERE lower(address) = lower(?1) AND datetime(expires_at) > datetime('now')",
+        params![address],
+        |row| row.get(0),
+    )
+    .optional()
+}
+
+fn fetch_session_address(conn: &Connection, session_id: &str) -> rusqlite::Result<Option<String>> {
+    conn.query_row(
+        "SELECT address
+         FROM auth_sessions
+         WHERE session_id = ?1 AND datetime(expires_at) > datetime('now')",
+        params![session_id],
+        |row| row.get(0),
+    )
+    .optional()
+}
+
+fn cleanup_expired_auth_records(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute(
+        "DELETE FROM auth_nonces WHERE datetime(expires_at) <= datetime('now')",
+        [],
+    )?;
+    conn.execute(
+        "DELETE FROM auth_sessions WHERE datetime(expires_at) <= datetime('now')",
+        [],
+    )?;
+    Ok(())
 }
 
 fn fetch_seller_status(conn: &Connection, address: &str) -> rusqlite::Result<Option<String>> {
@@ -1228,6 +1742,56 @@ fn load_sellers_store(conn: &Connection) -> AppResult<SellersStore> {
     }
 
     Ok(SellersStore { approved, pending })
+}
+
+fn insert_audit_log(
+    conn: &Connection,
+    category: &str,
+    action: &str,
+    actor: &str,
+    subject: &str,
+    product_id: Option<u64>,
+    summary: &str,
+    detail: &Value,
+) -> AppResult<()> {
+    let detail_json = serde_json::to_string(detail)
+        .map_err(|error| log_internal_error("Failed to serialize audit detail", error))?;
+    conn.execute(
+        "INSERT INTO audit_logs (category, action, actor, subject, product_id, summary, detail_json, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            category,
+            action,
+            actor,
+            subject,
+            product_id.map(|value| value as i64),
+            summary,
+            detail_json,
+            now_iso_like()
+        ],
+    )
+    .map_err(|error| log_internal_error("Failed to insert audit log", error))?;
+    Ok(())
+}
+
+fn load_audit_logs(conn: &Connection) -> AppResult<Vec<AuditLog>> {
+    let mut statement = conn
+        .prepare(
+            "SELECT id, category, action, actor, subject, product_id, summary, detail_json, created_at
+             FROM audit_logs
+             ORDER BY id DESC
+             LIMIT 40",
+        )
+        .map_err(|error| log_internal_error("Failed to load audit logs", error))?;
+    let rows = statement
+        .query_map([], map_audit_log_row)
+        .map_err(|error| log_internal_error("Failed to query audit logs", error))?;
+
+    let mut logs = Vec::new();
+    for row in rows {
+        logs.push(row.map_err(|error| log_internal_error("Failed to parse audit log row", error))?);
+    }
+    Ok(logs)
 }
 
 fn fetch_order_by_id(conn: &Connection, order_id: u64) -> rusqlite::Result<Option<OrderRecord>> {
@@ -1348,4 +1912,8 @@ fn infer_upload_extension(filename: &str, content_type: &str) -> &'static str {
 
 fn now_iso_like() -> String {
     chrono::Utc::now().to_rfc3339()
+}
+
+fn auth_expiry_iso(seconds_from_now: i64) -> String {
+    (chrono::Utc::now() + chrono::Duration::seconds(seconds_from_now)).to_rfc3339()
 }

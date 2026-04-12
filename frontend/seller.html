@@ -130,6 +130,17 @@
     <div class="bg-shape bg-shape-a"></div>
     <div class="bg-shape bg-shape-b"></div>
 
+    <header class="floating-nav">
+        <a class="floating-brand" href="/frontend/index.html">EF</a>
+        <nav class="floating-nav-links">
+            <a href="/frontend/index.html">首頁</a>
+            <a href="/frontend/buyer-center.html">買家中心</a>
+            <a href="/frontend/seller-center.html">賣家中心</a>
+            <a class="current" href="/frontend/seller.html">賣家後台</a>
+            <a href="/frontend/admin.html">Admin</a>
+        </nav>
+    </header>
+
     <div class="page-shell">
         <header class="top-nav">
             <a class="brand" href="/frontend/index.html">
@@ -139,14 +150,6 @@
                     <small>服裝商品上架與管理</small>
                 </div>
             </a>
-
-            <nav class="nav-links">
-                <a href="/frontend/index.html">回到商店</a>
-                <a href="/frontend/seller-center.html">賣家中心</a>
-                <a href="/frontend/admin.html">Admin</a>
-                <a href="#sellerGate">賣家資格</a>
-                <a href="#inventory">商品管理</a>
-            </nav>
 
             <div class="nav-actions">
                 <button id="switchNetworkButton" class="button ghost" type="button">切到 Sepolia</button>
@@ -205,8 +208,8 @@
                     <article class="panel-card">
                         <div class="section-head">
                             <div>
-                                <p class="eyebrow">Create</p>
-                                <h2>新增服裝商品</h2>
+                                <p id="formEyebrow" class="eyebrow">Create</p>
+                                <h2 id="formTitle">新增服裝商品</h2>
                             </div>
                         </div>
 
@@ -272,7 +275,10 @@
                                 <span>商品敘述</span>
                                 <textarea id="descriptionInput" rows="4" placeholder="描述版型、材質、搭配感受"></textarea>
                             </label>
-                            <button class="button primary" type="submit">上架商品</button>
+                            <div class="detail-actions">
+                                <button id="submitProductButton" class="button primary" type="submit">上架商品</button>
+                                <button id="cancelEditButton" class="button ghost hidden" type="button">取消編輯</button>
+                            </div>
                         </form>
                     </article>
 

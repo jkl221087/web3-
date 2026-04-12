@@ -16,6 +16,8 @@ const dom = {
     refreshRequestsButton: document.getElementById("refreshRequestsButton"),
     sellerWorkspace: document.getElementById("sellerWorkspace"),
     createProductForm: document.getElementById("createProductForm"),
+    formEyebrow: document.getElementById("formEyebrow"),
+    formTitle: document.getElementById("formTitle"),
     productName: document.getElementById("productName"),
     productPrice: document.getElementById("productPrice"),
     departmentSelect: document.getElementById("departmentSelect"),
@@ -28,6 +30,8 @@ const dom = {
     imageUrlInput: document.getElementById("imageUrlInput"),
     imageUploadStatus: document.getElementById("imageUploadStatus"),
     descriptionInput: document.getElementById("descriptionInput"),
+    submitProductButton: document.getElementById("submitProductButton"),
+    cancelEditButton: document.getElementById("cancelEditButton"),
     previewImage: document.getElementById("previewImage"),
     previewDepartment: document.getElementById("previewDepartment"),
     previewSeason: document.getElementById("previewSeason"),
@@ -43,10 +47,12 @@ const dom = {
 
 const state = {
     account: null,
+    session: null,
     products: [],
     sellerProfile: { approved: false, pending: false, isContractOwner: false },
     sellerRequests: [],
-    imageUploading: false
+    imageUploading: false,
+    editingProductId: null
 };
 
 function toast(type, message) {
@@ -104,6 +110,54 @@ function applyDefaultVariantInputs() {
     }
 }
 
+function getEditingProduct() {
+    return state.products.find((product) => product.productId === state.editingProductId) || null;
+}
+
+function setFormMode(mode) {
+    const editing = mode === "edit";
+    dom.formEyebrow.textContent = editing ? "Edit" : "Create";
+    dom.formTitle.textContent = editing ? "編輯服裝商品" : "新增服裝商品";
+    dom.submitProductButton.textContent = editing ? "儲存變更" : "上架商品";
+    dom.cancelEditButton.classList.toggle("hidden", !editing);
+}
+
+function resetProductForm() {
+    state.editingProductId = null;
+    dom.createProductForm.reset();
+    applyDefaultVariantInputs();
+    setUploadStatus("可直接在網站上選圖上傳，或改用下方圖片網址。");
+    setFormMode("create");
+    renderPreview();
+}
+
+function startEditingProduct(productId) {
+    const product = state.products.find((item) => item.productId === Number(productId));
+    if (!product) {
+        toast("error", "找不到要編輯的商品");
+        return;
+    }
+
+    const decimals = Number(core.runtime.paymentTokenMeta?.decimals || window.APP_CONFIG?.PAYMENT_TOKEN_DECIMALS || 6);
+    state.editingProductId = product.productId;
+    dom.productName.value = product.name;
+    dom.productPrice.value = window.ethers.formatUnits(product.priceWei, decimals);
+    dom.departmentSelect.value = product.meta.department;
+    dom.seasonSelect.value = product.meta.season;
+    dom.styleSelect.value = product.meta.style;
+    dom.sizesInput.value = product.meta.sizes.join(",");
+    dom.colorsInput.value = product.meta.colors.join(",");
+    dom.stockInput.value = String(product.meta.stock);
+    dom.imageUrlInput.value = product.meta.imageUrl || "";
+    dom.descriptionInput.value = product.meta.description || "";
+    dom.imageFileInput.value = "";
+    setUploadStatus(`正在編輯商品 #${product.productId}`);
+    setFormMode("edit");
+    renderPreview();
+    dom.productName.focus();
+    dom.createProductForm.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function setUploadStatus(message, tone = "neutral") {
     dom.imageUploadStatus.textContent = message;
     dom.imageUploadStatus.className = tone === "neutral" ? "upload-note" : `upload-note ${tone}`;
@@ -127,6 +181,19 @@ function renderAccessState() {
             badge: "未連接",
             title: "請先連接錢包",
             description: "連接後會檢查地址是否通過賣家審核，只有核准地址才能進入商品管理。",
+            disableRequest: true,
+            showWorkspace: false,
+            showAdmin: false
+        });
+        return;
+    }
+
+    if (!state.session?.authenticated) {
+        setSellerGate({
+            tone: "neutral",
+            badge: "未登入",
+            title: "請先完成錢包登入",
+            description: "Seller Studio 現在會先檢查後端 session。請重新連接錢包並完成簽名登入後，再進行賣家資格判斷。",
             disableRequest: true,
             showWorkspace: false,
             showAdmin: false
@@ -233,6 +300,7 @@ function renderInventory() {
             <div class="price-row">
                 <strong>${core.formatEth(product.priceWei)}</strong>
                 <div class="detail-actions">
+                    <button class="button ghost" data-action="edit-product" data-product-id="${product.productId}" type="button">編輯</button>
                     <button class="button ghost" data-action="toggle-product" data-product-id="${product.productId}" data-next="${product.isActive ? "false" : "true"}" type="button">
                         ${product.isActive ? "下架" : "重新上架"}
                     </button>
@@ -255,6 +323,7 @@ async function loadInventory() {
 
 async function loadSellerState() {
     if (!state.account) {
+        state.session = null;
         state.sellerProfile = { approved: false, pending: false, isContractOwner: false };
         state.sellerRequests = [];
         renderAccessState();
@@ -264,6 +333,7 @@ async function loadSellerState() {
     }
 
     try {
+        state.session = await core.fetchSessionProfile();
         state.sellerProfile = await core.fetchSellerProfile(state.account);
         state.sellerRequests = state.sellerProfile.isContractOwner ? await core.fetchSellerRequests() : [];
         renderAccessState();
@@ -293,19 +363,20 @@ async function createProduct(event) {
     }
 
     try {
-        const product = await core.createMockProduct({
+        const payload = {
             seller: state.account,
             name: dom.productName.value.trim(),
             priceWei: core.parsePaymentAmount(dom.productPrice.value),
             meta: buildPreviewMeta()
-        });
+        };
+        const editingProduct = getEditingProduct();
+        const product = editingProduct
+            ? await core.updateMockProduct(editingProduct.productId, payload)
+            : await core.createMockProduct(payload);
 
-        dom.createProductForm.reset();
-        applyDefaultVariantInputs();
-        setUploadStatus("可直接在網站上選圖上傳，或改用下方圖片網址。");
-        renderPreview();
+        resetProductForm();
         await loadInventory();
-        toast("success", `商品已建立，商品 ID：${product.productId}`);
+        toast("success", editingProduct ? `商品 #${product.productId} 已更新` : `商品已建立，商品 ID：${product.productId}`);
     } catch (error) {
         toast("error", normalizeError(error));
     }
@@ -315,6 +386,7 @@ async function connectWallet() {
     try {
         const session = await core.connectWallet();
         state.account = session.account;
+        state.session = session.session || null;
         dom.walletAddress.textContent = core.formatAddress(session.account);
         dom.contractAddressLabel.textContent = core.getConfiguredContractAddress()
             ? core.formatAddress(core.getConfiguredContractAddress())
@@ -379,6 +451,7 @@ async function approveSeller(address) {
 async function hydrate() {
     const session = await core.initWalletState();
     state.account = session.account;
+    state.session = session.session || null;
     if (core.getConfiguredContractAddress()) {
         await core.fetchPaymentTokenMeta();
     }
@@ -386,6 +459,7 @@ async function hydrate() {
     const contractAddress = core.getConfiguredContractAddress();
     dom.contractAddressLabel.textContent = contractAddress ? core.formatAddress(contractAddress) : "未設定";
     applyDefaultVariantInputs();
+    setFormMode("create");
     renderPreview();
     renderAccessState();
     renderSellerRequests();
@@ -419,6 +493,7 @@ dom.imageFileInput.addEventListener("change", async () => {
 });
 
 dom.createProductForm.addEventListener("submit", createProduct);
+dom.cancelEditButton.addEventListener("click", resetProductForm);
 
 dom.sellerRequestsList.addEventListener("click", async (event) => {
     const trigger = event.target.closest("[data-action='approve-seller']");
@@ -427,12 +502,25 @@ dom.sellerRequestsList.addEventListener("click", async (event) => {
 });
 
 dom.inventoryGrid.addEventListener("click", async (event) => {
-    const trigger = event.target.closest("[data-action='toggle-product']");
+    const trigger = event.target.closest("[data-action]");
     if (!trigger) return;
 
-    await core.setMockProductActive(Number(trigger.dataset.productId), trigger.dataset.next === "true");
-    await loadInventory();
-    toast("success", "商品狀態已更新，這一步不需要鏈上交易");
+    const action = trigger.dataset.action;
+    const productId = Number(trigger.dataset.productId);
+
+    if (action === "edit-product") {
+        startEditingProduct(productId);
+        return;
+    }
+
+    if (action === "toggle-product") {
+        await core.setMockProductActive(productId, trigger.dataset.next === "true");
+        if (state.editingProductId === productId && trigger.dataset.next !== "true") {
+            resetProductForm();
+        }
+        await loadInventory();
+        toast("success", "商品狀態已更新，這一步不需要鏈上交易");
+    }
 });
 
 if (window.ethereum) {

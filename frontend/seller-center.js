@@ -25,6 +25,8 @@ const dom = {
 const state = {
     account: null,
     chainId: null,
+    session: null,
+    isSeller: false,
     products: [],
     orders: [],
     reviews: [],
@@ -342,9 +344,15 @@ function renderOrders() {
     renderSellerReviews();
     renderPayoutHistory();
 
-    if (!state.account) {
+    if (!state.account || !state.session?.authenticated) {
         renderSummary([]);
-        dom.ordersGrid.innerHTML = '<article class="panel-card"><strong>請先連接錢包</strong><p>連接後就能看到你作為賣家的接單工作台。</p></article>';
+        dom.ordersGrid.innerHTML = '<article class="panel-card"><strong>請先連接錢包並完成登入</strong><p>登入後系統才會檢查你是不是核准賣家，並顯示接單工作台。</p></article>';
+        return;
+    }
+
+    if (!state.isSeller) {
+        renderSummary([]);
+        dom.ordersGrid.innerHTML = '<article class="panel-card"><strong>目前不是賣家身份</strong><p>這個頁面只會顯示核准賣家的接單工作台。你可以先到賣家後台申請賣家資格。</p></article>';
         return;
     }
 
@@ -418,7 +426,7 @@ function renderOrders() {
 async function loadData() {
     try {
         state.products = await core.fetchProducts();
-        if (state.account) {
+        if (state.account && state.session?.authenticated) {
             state.orders = await core.fetchOrders();
             state.reviews = await core.fetchReviews();
             state.payouts = await core.fetchPayouts();
@@ -486,6 +494,8 @@ async function hydrate() {
     const session = await core.initWalletState();
     state.account = session.account;
     state.chainId = session.chainId;
+    state.session = session.session || null;
+    state.isSeller = Boolean(state.session?.authenticated && (state.session?.isAdmin || state.session?.sellerStatus === "approved"));
     setHeaderState();
     renderOrders();
 
@@ -499,6 +509,8 @@ dom.connectButton.addEventListener("click", async () => {
         const session = await core.connectWallet();
         state.account = session.account;
         state.chainId = session.chainId;
+        state.session = session.session || null;
+        state.isSeller = Boolean(state.session?.authenticated && (state.session?.isAdmin || state.session?.sellerStatus === "approved"));
         setHeaderState();
         await loadData();
         toast("success", "錢包已連接");
@@ -512,6 +524,8 @@ dom.switchNetworkButton.addEventListener("click", async () => {
         await core.switchToExpectedNetwork();
         const session = await core.initWalletState();
         state.chainId = session.chainId;
+        state.session = session.session || null;
+        state.isSeller = Boolean(state.session?.authenticated && (state.session?.isAdmin || state.session?.sellerStatus === "approved"));
         setHeaderState();
         toast("success", "已切換到 Sepolia");
     } catch (error) {
