@@ -161,7 +161,7 @@ function renderCatalog() {
     const keyword = state.search.trim().toLowerCase();
 
     const filtered = state.products.filter((product) => {
-        if (!product.isActive) return false;
+        if (!product.isActive) return false;//如果不是isActive 就不會顯示此商品在首頁
         const inSearch =
             !keyword ||
             product.name.toLowerCase().includes(keyword) ||
@@ -443,9 +443,14 @@ function getOrdersForCurrentAccount() {
 
         if (!keyword) return true;
 
+
+        //完整地址
+        //格式化後地址
         return (
             String(order.orderId).includes(keyword) ||
             String(order.productName || "").toLowerCase().includes(keyword) ||
+            (order.buyer || "").toLowerCase().includes(keyword) ||
+            (order.seller || "").toLowerCase().includes(keyword) ||
             core.formatAddress(order.buyer).toLowerCase().includes(keyword) ||
             core.formatAddress(order.seller).toLowerCase().includes(keyword)
         );
@@ -483,8 +488,16 @@ function renderOrders() {
         return;
     }
 
-    const accountOrders = state.orders.filter((order) => order.buyer.toLowerCase() === state.account.toLowerCase() || order.seller.toLowerCase() === state.account.toLowerCase());
+
+    //首頁商品展示
+    const accountOrders = state.orders.filter(
+        (order) =>
+            order.buyer.toLowerCase() === state.account.toLowerCase() ||
+            order.seller.toLowerCase() === state.account.toLowerCase()
+    );
+
     renderOrderSummary(accountOrders);
+
     const orders = getOrdersForCurrentAccount();
 
     if (!orders.length) {
@@ -822,10 +835,25 @@ dom.switchNetworkButton.addEventListener("click", async () => {
     }
 });
 
-dom.searchInput.addEventListener("input", (event) => {
-    state.search = event.target.value;
+
+//防止卡頓
+function debounce(fn, delay = 250) {
+    let timer = null;
+    return (...args) => {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn(...args), delay);
+    };
+}
+
+//搜尋優化
+function handleCatalogSearch(event) {
+    state.search = event.target.value.trim();
     renderCatalog();
-});
+}
+
+if (dom.searchInput) {
+    dom.searchInput.addEventListener("input", debounce(handleCatalogSearch, 250));
+}
 
 dom.orderRoleTabs.addEventListener("click", (event) => {
     const button = event.target.closest("[data-role-filter]");
@@ -833,15 +861,28 @@ dom.orderRoleTabs.addEventListener("click", (event) => {
     setOrderRoleFilter(button.dataset.roleFilter);
 });
 
-dom.orderSearchInput.addEventListener("input", (event) => {
-    state.orderSearch = event.target.value;
-    renderOrders();
-});
 
-dom.orderStageFilter.addEventListener("change", (event) => {
+function handleOrderSearch(event) {
+    state.orderSearch = event.target.value.trim();
+    renderOrders();
+}
+
+//防止訂單如過很多 搜尋很卡
+if (dom.orderSearchInput) {
+    dom.orderSearchInput.addEventListener("input", debounce(handleOrderSearch, 250));
+}
+
+
+function handleOrderStageChange(event) {
     state.orderStageFilter = event.target.value;
     renderOrders();
-});
+}
+
+if (dom.orderStageFilter) {
+    dom.orderStageFilter.addEventListener("change", handleOrderStageChange);
+}
+
+
 
 dom.catalogViewport.addEventListener("mouseenter", () => {
     state.autoScrollPaused = true;

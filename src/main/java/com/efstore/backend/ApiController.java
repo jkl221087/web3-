@@ -67,7 +67,7 @@ class ApiController {
 
     @GetMapping("/products")
     List<ProductRecord> products() {
-        return storeService.loadProducts();// 商品清單
+        return storeService.loadProducts();// 會把資料庫裡的is ATIVE 抓回來
     }
 
     @PostMapping("/products")
