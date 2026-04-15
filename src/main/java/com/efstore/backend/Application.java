@@ -110,7 +110,7 @@ class StaticResourceConfig implements WebMvcConfigurer {
 class RootPageController {
     @GetMapping("/")
     String root() {
-        return "redirect:/frontend/index.html";
+        return "redirect:/frontend/entry.html";
     }
 }
 

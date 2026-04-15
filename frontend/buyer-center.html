@@ -1,14 +1,18 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
+
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Buyer Center</title>
+    <title>買家中心</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap"
+        rel="stylesheet" />
     <link rel="stylesheet" href="/frontend/styles.css?v=20260411a" />
 </head>
+
 <body class="fashion-body detail-body">
     <div class="bg-shape bg-shape-a"></div>
     <div class="bg-shape bg-shape-b"></div>
@@ -19,8 +23,8 @@
             <a href="/frontend/index.html">首頁</a>
             <a class="current" href="/frontend/buyer-center.html">買家中心</a>
             <a href="/frontend/seller-center.html">賣家中心</a>
-            <a href="/frontend/seller.html">賣家後台</a>
-            <a href="/frontend/admin.html">Admin</a>
+            <a href="/frontend/seller.html">商戶工作台</a>
+            <a href="/frontend/admin.html">管理後台</a>
         </nav>
     </header>
 
@@ -29,13 +33,12 @@
             <a class="brand" href="/frontend/index.html">
                 <span class="brand-mark">EF</span>
                 <div>
-                    <strong>Buyer Center</strong>
-                    <small>買家訂單與收貨進度</small>
+                    <strong>買家中心</strong>
+                    <small>買家訂單、收貨與付款狀態</small>
                 </div>
             </a>
 
             <div class="nav-actions">
-                <button id="switchNetworkButton" class="button ghost" type="button">切到 Sepolia</button>
                 <button id="connectButton" class="button primary" type="button">連接錢包</button>
             </div>
         </header>
@@ -43,7 +46,7 @@
         <main class="member-center-shell">
             <aside class="member-sidebar">
                 <div class="member-sidebar-head">
-                    <p class="eyebrow">Buyer Space</p>
+                    <p class="eyebrow">買家空間</p>
                     <h2>買家中心</h2>
                     <p>集中查看自己的鏈上訂單、等待取貨提醒與收貨確認。</p>
                 </div>
@@ -65,8 +68,7 @@
             <div class="member-content">
                 <section id="buyerOverview" class="seller-hero buyer-center-hero">
                     <div>
-                        <p class="eyebrow">Buyer Dashboard</p>
-                        <h1>這裡只顯示你作為買家的訂單、收貨進度與鏈上付款狀態。</h1>
+                        <p class="eyebrow">這裡只顯示你作為買家的訂單、收貨進度與鏈上付款狀態。</P>
                         <p>可以快速搜尋商品名稱、查看目前卡在哪個物流節點，並在等待取貨後直接完成鏈上確認收貨。</p>
                     </div>
                 </section>
@@ -122,7 +124,8 @@
                             <h2>我的購買紀錄</h2>
                         </div>
                         <div class="orders-toolbar-actions">
-                            <input id="orderSearchInput" class="search-input order-search-input" type="text" placeholder="搜尋訂單編號、商品名稱" />
+                            <input id="orderSearchInput" class="search-input order-search-input" type="text"
+                                placeholder="搜尋訂單編號、商品名稱" />
                             <select id="orderStageFilter" class="search-input order-stage-select">
                                 <option value="all">全部狀態</option>
                                 <option value="1">已付款</option>
@@ -145,9 +148,11 @@
 
     <div id="toastStack" class="toast-stack"></div>
 
-    <script src="/frontend/config.js"></script>
+    <script src="/frontend/config.js?v=20260415-bootstrap"></script>
     <script src="/node_modules/ethers/dist/ethers.umd.min.js"></script>
-    <script src="/frontend/shared.js"></script>
-    <script src="/frontend/buyer-center.js"></script>
+    <script src="/frontend/shared.js?v=20260415-bootstrap"></script>
+    <script src="/frontend/buyer-center.js?v=20260415-bootstrap"></script>
+
 </body>
+
 </html>

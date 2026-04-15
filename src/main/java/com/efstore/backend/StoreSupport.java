@@ -1,3 +1,4 @@
+
 package com.efstore.backend;
 
 import org.springframework.http.HttpStatus;
@@ -5,6 +6,7 @@ import org.springframework.http.HttpStatus;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.Collection;
 import java.util.Locale;
 
 final class StoreSupport {
@@ -35,11 +37,16 @@ final class StoreSupport {
     }
 
     static void requireUintString(String value, HttpStatus status, String message) {
-        require(value != null && value.matches("^\\d+$"), status, message);
+        require(value != null && value.matches("^\\\\d+$"), status, message);
     }
 
     static void requireAddress(String address, HttpStatus status, String message) {
         require(isValidEvmAddress(address), status, message);
+    }
+
+    static String requireOneOf(String value, Collection<String> allowed, HttpStatus status, String message) {
+        require(value != null && allowed.contains(value), status, message);
+        return value;
     }
 
     static String safe(String value) {

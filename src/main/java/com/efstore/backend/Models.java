@@ -1,3 +1,4 @@
+
 package com.efstore.backend;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -30,7 +31,23 @@ record OrderRecord(
     @JsonProperty("productName") String productName,
     @JsonProperty("productSeller") String productSeller,
     @JsonProperty("priceWei") String priceWei,
-    @JsonProperty("flowStage") short flowStage
+    @JsonProperty("flowStage") short flowStage,
+    @JsonProperty("commerceStatus") String commerceStatus,
+    @JsonProperty("settlementStatus") String settlementStatus,
+    @JsonProperty("disputeStatus") String disputeStatus,
+    @JsonProperty("riskStatus") String riskStatus,
+    @JsonProperty("riskScore") double riskScore,
+    @JsonProperty("screeningStatus") String screeningStatus,
+    @JsonProperty("screeningReason") String screeningReason,
+    @JsonProperty("payState") boolean payState,
+    @JsonProperty("completeState") boolean completeState,
+    @JsonProperty("sellerWithdrawn") boolean sellerWithdrawn,
+    boolean frozen,
+    @JsonProperty("payoutBlocked") boolean payoutBlocked,
+    @JsonProperty("fundedAt") String fundedAt,
+    @JsonProperty("releaseEligibleAt") String releaseEligibleAt,
+    @JsonProperty("receivedAt") String receivedAt,
+    @JsonProperty("settledAt") String settledAt
 ) {}
 
 record ReviewRecord(
@@ -52,7 +69,10 @@ record PayoutRecord(
     @JsonProperty("productName") String productName,
     @JsonProperty("amountWei") String amountWei,
     @JsonProperty("txHash") String txHash,
-    @JsonProperty("createdAt") String createdAt
+    @JsonProperty("createdAt") String createdAt,
+    @JsonProperty("payoutStatus") String payoutStatus,
+    @JsonProperty("amlReviewStatus") String amlReviewStatus,
+    @JsonProperty("approvedBy") String approvedBy
 ) {}
 
 record AuditLogRecord(
@@ -65,6 +85,20 @@ record AuditLogRecord(
     String summary,
     JsonNode detail,
     @JsonProperty("createdAt") String createdAt
+) {}
+
+record RiskCaseRecord(
+    @JsonProperty("caseId") long caseId,
+    @JsonProperty("orderId") Long orderId,
+    @JsonProperty("caseType") String caseType,
+    String severity,
+    String status,
+    @JsonProperty("reasonCode") String reasonCode,
+    String notes,
+    @JsonProperty("openedBy") String openedBy,
+    @JsonProperty("resolvedBy") String resolvedBy,
+    @JsonProperty("createdAt") String createdAt,
+    @JsonProperty("resolvedAt") String resolvedAt
 ) {}
 
 record UploadResponse(String url, String filename) {}
@@ -92,6 +126,32 @@ record CreateOrderRequest(
 ) {}
 
 record UpdateOrderFlowRequest(@JsonProperty("flowStage") Integer flowStage) {}
+
+record UpdateOrderRiskRequest(
+    @JsonProperty("riskStatus") String riskStatus,
+    @JsonProperty("riskScore") Double riskScore,
+    @JsonProperty("screeningStatus") String screeningStatus,
+    @JsonProperty("screeningReason") String screeningReason,
+    @JsonProperty("payoutBlocked") Boolean payoutBlocked
+) {}
+
+record UpdateOrderFreezeRequest(String reason) {}
+
+record CreateRiskCaseRequest(
+    @JsonProperty("orderId") Long orderId,
+    @JsonProperty("caseType") String caseType,
+    String severity,
+    @JsonProperty("reasonCode") String reasonCode,
+    String notes
+) {}
+
+record ResolveRiskCaseRequest(String status, String notes) {}
+
+record UpdatePayoutReviewRequest(
+    @JsonProperty("payoutStatus") String payoutStatus,
+    @JsonProperty("amlReviewStatus") String amlReviewStatus,
+    @JsonProperty("approvedBy") String approvedBy
+) {}
 
 record CreateReviewRequest(
     @JsonProperty("orderId") long orderId,

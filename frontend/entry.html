@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EF Gateway · Entry</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap"
+        rel="stylesheet" />
+    <link rel="stylesheet" href="/frontend/styles.css?v=20260411a" />
+    <link rel="stylesheet" href="/frontend/entry.css?v=20260416-white-v2" />
+</head>
+
+<body class="fashion-body entry-body">
+    <div class="bg-shape bg-shape-a"></div>
+    <div class="bg-shape bg-shape-b"></div>
+    <canvas id="bgCanvas"></canvas>
+
+    <div class="page-shell entry-shell">
+        <section class="entry-hero panel-card">
+            <div class="entry-hero-copy">
+                <p class="eyebrow">Gateway Entry</p>
+                <h1>WEB3 服飾電商平台</h1>
+                <p class="entry-lead">
+                    這個入口頁只處理錢包、Session、鏈切換與權限判斷。完成後再進入商店，
+                    買家、賣家與管理後台都會沿用同一份登入狀態。
+                </p>
+                <div class="entry-trust-strip">
+                    <span>Sepolia Testnet</span>
+                    <span>USDT Escrow</span>
+                    <span>Shared Session Runtime</span>
+                </div>
+            </div>
+
+            <div class="entry-wallet-panel">
+                <div class="entry-status-row">
+                    <div class="status-chip">
+                        <span class="status-dot" id="statusDot"></span>
+                        <span id="statusText">正在初始化網路連線</span>
+                    </div>
+                    <span class="status-time" id="statusTime"></span>
+                </div>
+
+                <div class="entry-card-grid">
+                    <article class="runtime-card runtime-card-highlight entry-main-card">
+                        <p class="eyebrow">Wallet</p>
+                        <h3>入口連線狀態</h3>
+
+                        <div id="notConnectedState" class="entry-connect-state">
+                            <p class="entry-helper">請先連接 Web3 錢包，入口頁會先完成錢包連線、後端登入與權限同步。</p>
+                            <div class="entry-action-row">
+                                <button class="button primary" id="connectBtn" type="button">連接錢包</button>
+                                <button class="button ghost" id="switchNetBtn" type="button">切換至 Sepolia</button>
+                            </div>
+                        </div>
+
+                        <div id="connectedState" class="entry-connected-state" style="display:none">
+                            <div class="runtime-list">
+                                <div class="runtime-row">
+                                    <span>你的地址</span>
+                                    <strong id="walletAddr">—</strong>
+                                </div>
+                                <div class="runtime-row">
+                                    <span>網路</span>
+                                    <strong id="walletNetwork">—</strong>
+                                </div>
+                                <div class="runtime-row">
+                                    <span>登入狀態</span>
+                                    <strong id="walletSessionState">—</strong>
+                                </div>
+                                <div class="runtime-row">
+                                    <span>目前權限</span>
+                                    <strong id="walletRole">—</strong>
+                                </div>
+                            </div>
+
+                            <div class="entry-action-row">
+                                <button class="button primary" id="connectBtnConnected" type="button">重新連接</button>
+                                <button class="button ghost" id="switchNetBtnConnected" type="button">切換至 Sepolia</button>
+                            </div>
+                        </div>
+                    </article>
+
+                    <article class="runtime-card entry-side-card">
+                        <p class="eyebrow">Escrow</p>
+                        <h3>鏈上合約資訊</h3>
+                        <div class="runtime-list">
+                            <div class="runtime-row">
+                                <span>目前鏈 ID</span>
+                                <strong id="chainBadge">未連接</strong>
+                            </div>
+                            <div class="runtime-row">
+                                <span>合約地址</span>
+                                <strong id="walletContract">—</strong>
+                            </div>
+                            <div class="runtime-row">
+                                <span>託管餘額</span>
+                                <strong id="walletEscrow">—</strong>
+                            </div>
+                            <div class="runtime-row">
+                                <span>最新區塊</span>
+                                <strong id="blockNumber">Block #—</strong>
+                            </div>
+                        </div>
+                        <div id="networkNotice" class="entry-notice" style="display:none">
+                            ⚠ 請切換至 Sepolia 才能使用完整功能。
+                        </div>
+                    </article>
+                </div>
+
+                <div class="entry-footer-card">
+                    <div class="entry-footer-meta">
+                        <span id="entryFooterRole">Role · Guest</span>
+                        <span>Escrow Fashion Runtime</span>
+                    </div>
+                    <a class="button primary entry-enter-button" id="enterStoreBtn" href="/frontend/index.html">進入商店</a>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <div id="toastEntry" class="entry-toast"></div>
+
+    <script src="/node_modules/ethers/dist/ethers.umd.min.js"></script>
+    <script src="/frontend/config.js?v=20260415-bootstrap"></script>
+    <script src="/frontend/shared.js?v=20260415-bootstrap"></script>
+    <script src="/frontend/entry.js?v=20260416-white"></script>
+</body>
+
+</html>

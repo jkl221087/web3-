@@ -1,0 +1,1 @@
+Seventh round: storefront and product detail enterprise catalog trust upgrade. Overlay frontend/index.html, frontend/product.html, frontend/product.js, frontend/store.js, frontend/styles.css onto your latest project.

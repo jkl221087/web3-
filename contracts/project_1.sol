@@ -1,15 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity >=0.8.20 <=0.8.35;
+pragma solidity 0.8.28;
 
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-
-
-interface IERC20EscrowToken {
-    function transferFrom(address from, address to, uint256 amount) external returns (bool);
-    function transfer(address to, uint256 amount) external returns (bool);
-    function balanceOf(address account) external view returns (uint256);
-}
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 contract Owner {
     address public owner;
@@ -24,20 +18,23 @@ contract Owner {
     }
 }
 
-// 主合約：只負責 ERC20 / USDT 訂單付款、買家確認收貨、賣家提領。
-contract contractName_order is Owner {
-    uint256 public Order_ID = 0;
-    address public immutable payment_token;
+/// @title EscrowOrder
+/// @notice 負責 ERC20 / USDT 訂單付款、買家確認收貨、賣家提領。
+/// @dev 使用 SafeERC20 避免不標準 ERC20 的問題，使用 ReentrancyGuard 防止重入攻擊。
+contract EscrowOrder is Owner, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
+    uint256 public orderCount = 0;
+    address public immutable paymentToken;
+
     struct OrderInfo {
-    uint256 orderId;
-    uint256 amount;
-    address buy_user;
-    address sell_user;
-    bool pay_state;
-    bool complete_state;
-    bool seller_withdrawn;
+        uint256 orderId;
+        uint256 amount;
+        address buyer;          // 打包進同一個 slot（address 20 bytes + 3 bool = 23 bytes < 32 bytes）
+        bool isPaid;
+        bool isCompleted;
+        bool sellerWithdrawn;
+        address seller;
     }
 
     mapping(uint256 => OrderInfo) public orders;
@@ -61,90 +58,105 @@ contract contractName_order is Owner {
 
     constructor(address paymentToken_) {
         require(paymentToken_ != address(0), "Payment token required");
-        payment_token = paymentToken_;
+        paymentToken = paymentToken_;
     }
 
+    // ─────────────────────────────────────────────
+    // External — 買家操作
+    // ─────────────────────────────────────────────
+
+    /// @notice 建立訂單並從買家帳戶轉入款項到合約
     function create_and_fund_order(
         address seller,
-        uint256 _amount
-
-    ) external returns (uint256) {
+        uint256 amount
+    ) external nonReentrant returns (uint256) {
         require(seller != address(0), "Seller required");
-        require(_amount > 0, "Amount must be greater than 0");
+        require(amount > 0, "Amount must be greater than 0");
 
-        IERC20(payment_token).safeTransferFrom(msg.sender, address(this), _amount);
+        IERC20(paymentToken).safeTransferFrom(msg.sender, address(this), amount);
 
-        unchecked {
-            Order_ID++;
-            }
+        unchecked { ++orderCount; }
 
-        orders[Order_ID] = OrderInfo({
-            orderId: Order_ID,
-            buy_user: msg.sender,
-            sell_user: seller,
-            amount: _amount,
-            pay_state: true,
-            complete_state: false,
-            seller_withdrawn: false
+        orders[orderCount] = OrderInfo({
+            orderId:         orderCount,
+            buyer:           msg.sender,
+            seller:          seller,
+            amount:          amount,
+            isPaid:          true,
+            isCompleted:     false,
+            sellerWithdrawn: false
         });
 
-        emit OrderCreated(Order_ID, msg.sender, seller, _amount);
-        return Order_ID;
+        emit OrderCreated(orderCount, msg.sender, seller, amount);
+        return orderCount;
     }
 
-    function _complete_order(uint256 orderId, address actor) internal returns (bool) {
+    /// @notice 買家確認取貨，釋放款項給賣家提領
+    function confirm_order_received(uint256 orderId) external returns (bool) {
         OrderInfo storage order = orders[orderId];
 
-        require(order.orderId != 0, "Order does not exist");
-        require(order.pay_state, "Order not paid");
-        require(!order.complete_state, "Order already completed");
-        require(!order.seller_withdrawn, "Funds already withdrawn");
-        require(
-            actor == order.buy_user || actor == owner,
-            "Only buyer or owner can complete"
-        );
+        require(order.orderId != 0,      "Order does not exist");
+        require(order.isPaid,            "Order not paid");
+        require(!order.isCompleted,      "Order already completed");
+        require(!order.sellerWithdrawn,  "Funds already withdrawn");
+        require(msg.sender == order.buyer, "Only buyer can confirm");
 
-        order.complete_state = true;
-        emit OrderCompleted(orderId, order.buy_user, order.sell_user);
+        order.isCompleted = true;
+        emit OrderCompleted(orderId, order.buyer, order.seller);
         return true;
     }
 
-    function complete_order(uint256 orderId) external returns (bool) {
-        return _complete_order(orderId, msg.sender);
-    }
+    // ─────────────────────────────────────────────
+    // External — 賣家操作
+    // ─────────────────────────────────────────────
 
-    function confirm_order_received(uint256 orderId) external returns (bool) {
-        return _complete_order(orderId, msg.sender);
-    }
-
-
-
-    function withdraw_order_funds(uint256 orderId) external returns (bool) {
+    /// @notice 賣家在買家確認收貨後提領款項
+    function withdraw_order_funds(uint256 orderId) external nonReentrant returns (bool) {
         OrderInfo storage order = orders[orderId];
 
         require(order.orderId != 0, "Order does not exist");
-        require(msg.sender == order.sell_user, "Only seller can withdraw");
-        require(order.complete_state, "Order is not completed");
-        require(!order.seller_withdrawn, "Funds already withdrawn");
+        require(msg.sender == order.seller,   "Only seller can withdraw");
+        require(order.isCompleted,            "Order is not completed");
+        require(!order.sellerWithdrawn,       "Funds already withdrawn");
 
         uint256 amount = order.amount;
-        order.seller_withdrawn = true;
-        
-        //原本的transferFrom會有資金問題
-        IERC20(payment_token).safeTransfer(msg.sender, amount);//安全
+        order.sellerWithdrawn = true;
+
+        IERC20(paymentToken).safeTransfer(msg.sender, amount);
 
         emit SellerWithdrawn(orderId, msg.sender, amount);
         return true;
     }
 
-    function get_order_info(
-        uint256 orderId
-    ) external view returns (OrderInfo memory) {
+    // ─────────────────────────────────────────────
+    // Owner — 緊急仲裁
+    // ─────────────────────────────────────────────
+
+    /// @notice 僅供 owner 在爭議情況下強制完成訂單（買家無回應等）
+    /// @dev 若不需要仲裁功能可直接刪除此函式
+    function admin_force_complete(uint256 orderId) external onlyOwner returns (bool) {
+        OrderInfo storage order = orders[orderId];
+
+        require(order.orderId != 0,     "Order does not exist");
+        require(order.isPaid,           "Order not paid");
+        require(!order.isCompleted,     "Order already completed");
+        require(!order.sellerWithdrawn, "Funds already withdrawn");
+
+        order.isCompleted = true;
+        emit OrderCompleted(orderId, order.buyer, order.seller);
+        return true;
+    }
+
+    // ─────────────────────────────────────────────
+    // View
+    // ─────────────────────────────────────────────
+
+    function get_order_info(uint256 orderId) external view returns (OrderInfo memory) {
         require(orders[orderId].orderId != 0, "Order does not exist");
         return orders[orderId];
     }
 
     function get_contract_balance() external view returns (uint256) {
-        return IERC20EscrowToken(payment_token).balanceOf(address(this));
+        return IERC20(paymentToken).balanceOf(address(this));
     }
 }
