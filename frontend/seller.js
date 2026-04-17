@@ -42,6 +42,12 @@ const dom = {
   readinessChecklist: document.getElementById("readinessChecklist"),
   governanceStrip: document.getElementById("governanceStrip"),
   alertList: document.getElementById("alertList"),
+  confirmDeleteModal: document.getElementById("confirmDeleteModal"),
+  confirmDeleteBackdrop: document.getElementById("confirmDeleteBackdrop"),
+  confirmDeleteTitle: document.getElementById("confirmDeleteTitle"),
+  confirmDeleteMessage: document.getElementById("confirmDeleteMessage"),
+  confirmDeleteCancel: document.getElementById("confirmDeleteCancel"),
+  confirmDeleteAccept: document.getElementById("confirmDeleteAccept"),
   toastStack: document.getElementById("toastStack")
 };
 
@@ -54,6 +60,8 @@ const state = {
   sellerRequests: [],
   editingProductId: null
 };
+
+let deleteResolver = null;
 
 const bootstrap = core.createPageBootstrap({
   dom,
@@ -125,6 +133,27 @@ function startEdit(productId){
   core.toggleHidden(dom.cancelEditButton, false);
   uploadStatus(`正在編輯商品 #${product.productId}`);
   renderPreview();
+  const editPanel = dom.createProductForm?.closest(".seller-form-card");
+  editPanel?.scrollIntoView({ behavior: "smooth", block: "start" });
+  window.setTimeout(() => dom.productName?.focus(), 220);
+}
+function closeDeleteModal(answer = false){
+  core.toggleHidden(dom.confirmDeleteModal, true);
+  dom.confirmDeleteModal?.setAttribute("aria-hidden", "true");
+  if(deleteResolver){
+    deleteResolver(answer);
+    deleteResolver = null;
+  }
+}
+function confirmDeleteProduct(product){
+  if(dom.confirmDeleteTitle) dom.confirmDeleteTitle.textContent = `確定要刪除「${product.name}」嗎？`;
+  if(dom.confirmDeleteMessage) dom.confirmDeleteMessage.textContent = "刪除後無法復原，商品也會從商品管理與商店前台移除。";
+  core.toggleHidden(dom.confirmDeleteModal, false);
+  dom.confirmDeleteModal?.setAttribute("aria-hidden", "false");
+  window.setTimeout(() => dom.confirmDeleteAccept?.focus(), 10);
+  return new Promise((resolve) => {
+    deleteResolver = resolve;
+  });
 }
 function renderGovernance(){
   const products=state.products.filter(p=>String(p.seller).toLowerCase()===String(state.account||"").toLowerCase());
@@ -158,7 +187,37 @@ function renderGovernance(){
 function renderInventory(){
   if(!dom.inventoryGrid) return;
   const products=state.products.filter(p=>String(p.seller).toLowerCase()===String(state.account||"").toLowerCase());
-  dom.inventoryGrid.innerHTML = products.length ? products.map(p=>`<article class="inventory-card inventory-card-wide"><img src="${p.image}" alt="${p.name}"><div class="inventory-meta"><div><div class="detail-tags"><span class="tag-pill">商品 #${p.productId}</span><span class="tag-pill">${p.meta.department}</span><span class="tag-pill">${p.meta.season}</span><span class="tag-pill">${p.meta.style}</span></div><h3>${p.name}</h3><p>${p.meta.description || "尚未填寫商品敘述。"}</p><p>賣家：${core.formatAddress(p.seller)} ・ 庫存：${p.meta.stock}</p><div class="detail-tags"><span class="tag-pill">${p.isActive?"販售中":"已下架"}</span><span class="tag-pill">${p.meta.imageUrl?"有圖片":"缺圖片"}</span><span class="tag-pill">${p.meta.description?"有敘述":"缺敘述"}</span></div></div><div class="price-row"><strong>${core.formatEth(p.priceWei)}</strong><div class="detail-actions"><button class="button ghost" data-edit="${p.productId}">編輯</button><button class="button ${p.isActive?'ghost':'primary'}" data-toggle="${p.productId}">${p.isActive?'下架':'重新上架'}</button></div></div></div></article>`).join("") : '<article class="panel-card"><strong>目前沒有商品</strong><p>建立第一筆商品後，這裡會顯示你的庫存清單。</p></article>';
+  dom.inventoryGrid.innerHTML = products.length ? products.map(p=>`
+    <article class="inventory-card inventory-card-wide">
+      <img src="${p.image}" alt="${p.name}">
+      <div class="inventory-meta">
+        <div class="inventory-main">
+          <div class="detail-tags">
+            <span class="tag-pill">商品 #${p.productId}</span>
+            <span class="tag-pill">${p.meta.department}</span>
+            <span class="tag-pill">${p.meta.season}</span>
+            <span class="tag-pill">${p.meta.style}</span>
+          </div>
+          <h3>${p.name}</h3>
+          <p>${p.meta.description || "尚未填寫商品敘述。"}</p>
+          <p>賣家：${core.formatAddress(p.seller)} ・ 庫存：${p.meta.stock}</p>
+          <div class="detail-tags">
+            <span class="tag-pill">${p.isActive ? "販售中" : "已下架"}</span>
+            <span class="tag-pill">${p.meta.imageUrl ? "有圖片" : "缺圖片"}</span>
+            <span class="tag-pill">${p.meta.description ? "有敘述" : "缺敘述"}</span>
+          </div>
+        </div>
+        <div class="inventory-side">
+          <strong>${core.formatEth(p.priceWei)}</strong>
+          <div class="detail-actions">
+            <button class="button ghost" data-edit="${p.productId}" type="button">編輯</button>
+            <button class="button ${p.isActive ? 'ghost' : 'primary'}" data-toggle="${p.productId}" type="button">${p.isActive ? '下架' : '重新上架'}</button>
+            <button class="button ghost" data-delete="${p.productId}" type="button">刪除</button>
+          </div>
+        </div>
+      </div>
+    </article>
+  `).join("") : '<article class="panel-card"><strong>目前沒有商品</strong><p>建立第一筆商品後，這裡會顯示你的庫存清單。</p></article>';
 }
 async function hydrate(force=false){
   try{
@@ -192,12 +251,25 @@ async function handleSubmit(event){
 async function handleInventoryClick(event){
   const editId = event.target.closest("[data-edit]")?.dataset.edit;
   const toggleId = event.target.closest("[data-toggle]")?.dataset.toggle;
+  const deleteId = event.target.closest("[data-delete]")?.dataset.delete;
   try{
     if(editId){ startEdit(editId); return; }
     if(toggleId){
       const product=state.products.find(p=>p.productId===Number(toggleId)); if(!product) return;
       await core.setProductActive(product.productId, !product.isActive);
       toast("success", product.isActive ? "商品已下架" : "商品已重新上架");
+      await hydrate(true);
+      return;
+    }
+    if(deleteId){
+      const product=state.products.find(p=>p.productId===Number(deleteId)); if(!product) return;
+      const shouldDelete = await confirmDeleteProduct(product);
+      if(!shouldDelete) return;
+      await core.deleteProduct(product.productId);
+      if(state.editingProductId === product.productId){
+        resetForm();
+      }
+      toast("success", "商品已刪除");
       await hydrate(true);
     }
   }catch(error){ toast("error", normalizeError(error)); }
@@ -209,6 +281,14 @@ core.on(dom.refreshInventoryButton,"click", ()=>hydrate(true));
 core.on(dom.createProductForm,"submit", handleSubmit);
 core.on(dom.cancelEditButton,"click", ()=>resetForm());
 core.on(dom.inventoryGrid,"click", handleInventoryClick);
+core.on(dom.confirmDeleteBackdrop,"click", ()=>closeDeleteModal(false));
+core.on(dom.confirmDeleteCancel,"click", ()=>closeDeleteModal(false));
+core.on(dom.confirmDeleteAccept,"click", ()=>closeDeleteModal(true));
+document.addEventListener("keydown", (event)=>{
+  if(event.key === "Escape" && !dom.confirmDeleteModal?.classList.contains("hidden")){
+    closeDeleteModal(false);
+  }
+});
 [dom.productName, dom.productPrice, dom.departmentSelect, dom.seasonSelect, dom.styleSelect, dom.sizesInput, dom.colorsInput, dom.stockInput, dom.imageUrlInput, dom.descriptionInput].forEach(el=>core.on(el,"input", renderPreview));
 core.on(dom.imageFileInput, "change", async (event)=>{
   const file = event.target.files?.[0]; if(!file) return;
@@ -222,4 +302,3 @@ core.on(dom.sellerRequestsList,"click", async (event)=>{
     if(reject){ await core.approveSellerAccess(reject,false); toast("success","已退回賣家申請"); await hydrate(true); }
   }catch(error){ toast("error", normalizeError(error)); }
 });
-

@@ -8,12 +8,16 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -347,14 +351,25 @@ class StoreService {
                 "Seller address must be approved before creating products");
 
         String name = StoreSupport.requireNonBlank(payload.name(), HttpStatus.BAD_REQUEST, "Name is required");
-        StoreSupport.requireUintString(payload.priceWei(), HttpStatus.BAD_REQUEST,
-                "priceWei must be an unsigned integer string");
+        String normalizedPrice = StoreSupport.normalizeTokenAmount(payload.priceWei(), 6, HttpStatus.BAD_REQUEST,
+                "商品價格格式不正確，請輸入像 25 或 25.50 這樣的數字");
 
-        jdbc.update(
-                "INSERT INTO products (seller, name, price_wei, is_active, meta_json) VALUES (?, ?, ?, 1, ?)",
-                seller, name, payload.priceWei(), stringify(payload.meta()));
+        KeyHolder keyHolder = new GeneratedKeyHolder();
+        jdbc.update(connection -> {
+            PreparedStatement statement = connection.prepareStatement(
+                    "INSERT INTO products (seller, name, price_wei, is_active, meta_json) VALUES (?, ?, ?, 1, ?)",
+                    Statement.RETURN_GENERATED_KEYS);
+            statement.setString(1, seller);
+            statement.setString(2, name);
+            statement.setString(3, normalizedPrice);
+            statement.setString(4, stringify(payload.meta()));
+            return statement;
+        }, keyHolder);
 
-        Long productId = jdbc.queryForObject("SELECT last_insert_rowid()", Long.class);
+        Number generatedId = keyHolder.getKey();
+        StoreSupport.require(generatedId != null, HttpStatus.INTERNAL_SERVER_ERROR,
+                "商品建立成功，但無法取得商品編號");
+        Long productId = generatedId.longValue();
         ProductRecord product = findProduct(productId);
 
         insertAudit("product", "create", actor, product.name(), product.productId(),
@@ -376,9 +391,10 @@ class StoreService {
         String nextName = payload.name() != null
                 ? StoreSupport.requireNonBlank(payload.name(), HttpStatus.BAD_REQUEST, "Product name is required")
                 : current.name();
-        String nextPrice = payload.priceWei() != null ? payload.priceWei() : current.priceWei();
-        StoreSupport.requireUintString(nextPrice, HttpStatus.BAD_REQUEST,
-                "Price must be an unsigned integer string");
+        String nextPrice = payload.priceWei() != null
+                ? StoreSupport.normalizeTokenAmount(payload.priceWei(), 6, HttpStatus.BAD_REQUEST,
+                "商品價格格式不正確，請輸入像 25 或 25.50 這樣的數字")
+                : current.priceWei();
         boolean nextActive = payload.isActive() != null ? payload.isActive() : current.isActive();
         JsonNode nextMeta = payload.meta() != null ? payload.meta() : current.meta();
 
@@ -411,6 +427,23 @@ class StoreService {
                         "meta", updated.meta()));
 
         return updated;
+    }
+
+    void deleteProduct(String actor, long productId) {
+        ProductRecord current = findProduct(productId);
+        StoreSupport.require(current.seller().equals(actor) || isAdmin(actor), HttpStatus.FORBIDDEN,
+                "Only the seller or admin can delete this product");
+
+        int affected = jdbc.update("DELETE FROM products WHERE product_id = ?", productId);
+        StoreSupport.require(affected > 0, HttpStatus.NOT_FOUND, "Product not found");
+
+        insertAudit("product", "delete", actor, current.name(), current.productId(),
+                "刪除商品「" + current.name() + "」",
+                detailMap(
+                        "seller", current.seller(),
+                        "priceWei", current.priceWei(),
+                        "isActive", current.isActive(),
+                        "meta", current.meta()));
     }
 
     SellersStore requestSeller(String actor, SellerRequest payload) {

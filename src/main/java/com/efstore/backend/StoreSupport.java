@@ -3,6 +3,7 @@ package com.efstore.backend;
 
 import org.springframework.http.HttpStatus;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -37,7 +38,28 @@ final class StoreSupport {
     }
 
     static void requireUintString(String value, HttpStatus status, String message) {
-        require(value != null && value.matches("^\\\\d+$"), status, message);
+        require(value != null && value.matches("^\\d+$"), status, message);
+    }
+
+    static String normalizeTokenAmount(String value, int decimals, HttpStatus status, String message) {
+        String normalized = value == null ? "" : value.trim().replace(",", "");
+        require(!normalized.isEmpty(), status, message);
+
+        if (normalized.matches("^\\d+$")) {
+            return normalized;
+        }
+
+        require(normalized.matches("^\\d+(\\.\\d+)?$"), status, message);
+
+        try {
+            BigDecimal decimal = new BigDecimal(normalized);
+            require(decimal.signum() >= 0, status, message);
+            BigDecimal shifted = decimal.movePointRight(decimals);
+            require(shifted.stripTrailingZeros().scale() <= 0, status, message);
+            return shifted.toBigIntegerExact().toString();
+        } catch (ArithmeticException | NumberFormatException ex) {
+            throw new ApiException(status, message);
+        }
     }
 
     static void requireAddress(String address, HttpStatus status, String message) {

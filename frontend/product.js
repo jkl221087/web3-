@@ -1,7 +1,6 @@
 const core = window.FashionStoreCore;
 
 const dom = {
-    connectButton: document.getElementById("connectButton"),
     detailImage: document.getElementById("detailImage"),
     detailTags: document.getElementById("detailTags"),
     detailName: document.getElementById("detailName"),
@@ -235,17 +234,6 @@ async function hydrate() {
     renderCurrentProduct();
     renderRelatedProducts();
 }
-
-dom.connectButton.addEventListener("click", async () => {
-    try {
-        const session = await core.connectWallet();
-        state.account = session.account;
-        dom.detailWallet.textContent = core.formatAddress(state.account);
-        toast("success", "錢包已連接");
-    } catch (error) {
-        toast("error", normalizeError(error));
-    }
-});
 
 dom.detailAddCartButton.addEventListener("click", addCurrentProductToCart);
 dom.detailFavoriteButton.addEventListener("click", toggleCurrentProductFavorite);

@@ -10,23 +10,25 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap"
         rel="stylesheet" />
-    <link rel="stylesheet" href="/frontend/styles.css?v=20260412a" />
+    <link rel="stylesheet" href="/frontend/styles.css?v=20260417-store-world-5" />
 </head>
 
-<body class="fashion-body seller-body">
+<body class="fashion-body seller-body console-body">
     <div class="bg-shape bg-shape-a"></div>
     <div class="bg-shape bg-shape-b"></div>
 
-    <header class="floating-nav">
-        <a class="floating-brand" href="/frontend/index.html">EF</a>
-        <nav class="floating-nav-links">
-            <a href="/frontend/index.html">首頁</a>
-            <a href="/frontend/buyer-center.html">買家中心</a>
-            <a href="/frontend/seller-center.html">賣家中心</a>
-            <a href="/frontend/seller.html">賣家後台</a>
-            <a class="current" href="/frontend/admin.html">Admin</a>
-        </nav>
-    </header>
+    <div class="bottom-nav-dock">
+        <header class="floating-nav">
+            <a class="floating-brand" href="/frontend/index.html">EF</a>
+            <nav class="floating-nav-links">
+                <a href="/frontend/index.html">首頁</a>
+                <a href="/frontend/buyer-center.html">買家中心</a>
+                <a href="/frontend/seller-center.html">賣家中心</a>
+                <a href="/frontend/seller.html">賣家後台</a>
+                <a class="current" href="/frontend/admin.html">Admin</a>
+            </nav>
+        </header>
+    </div>
 
     <div class="page-shell">
         <header class="top-nav">
@@ -37,11 +39,6 @@
                     <small>商店管理與審核後台</small>
                 </div>
             </a>
-
-            <div class="nav-actions">
-                <button id="switchNetworkButton" class="button ghost" type="button">切到 Sepolia</button>
-                <button id="connectButton" class="button primary" type="button">連接錢包</button>
-            </div>
         </header>
 
         <main class="member-center-shell">
@@ -152,6 +149,7 @@
     <script src="/node_modules/ethers/dist/ethers.umd.min.js"></script>
     <script src="/frontend/shared.js?v=20260415-bootstrap"></script>
     <script src="/frontend/admin.js?v=20260415-bootstrap"></script>
+    <script src="/frontend/motion.js?v=20260417-token-swarm"></script>
 </body>
 
 </html>

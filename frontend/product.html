@@ -7,14 +7,11 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/frontend/styles.css?v=20260410b" />
+    <link rel="stylesheet" href="/frontend/styles.css?v=20260417-store-world-5" />
     <style>
         body {
             margin: 0;
-            min-height: 100vh;
             font-family: "Noto Sans TC", sans-serif;
-            color: #17304a;
-            background: linear-gradient(180deg, #f5f9ff 0%, #dde9f5 100%);
         }
 
         .page-shell {
@@ -108,9 +105,22 @@
         }
     </style>
 </head>
-<body class="fashion-body detail-body">
+<body class="fashion-body detail-body console-body">
     <div class="bg-shape bg-shape-a"></div>
     <div class="bg-shape bg-shape-b"></div>
+
+    <div class="bottom-nav-dock">
+        <header class="floating-nav">
+            <a class="floating-brand" href="/frontend/index.html">EF</a>
+            <nav class="floating-nav-links">
+                <a href="/frontend/index.html">首頁</a>
+                <a href="/frontend/buyer-center.html">買家中心</a>
+                <a href="/frontend/seller-center.html">賣家中心</a>
+                <a href="/frontend/seller.html">商戶工作台</a>
+                <a href="/frontend/admin.html">管理後台</a>
+            </nav>
+        </header>
+    </div>
 
     <div class="page-shell">
         <header class="top-nav">
@@ -121,18 +131,6 @@
                     <small>商品資訊、評價與購買設定</small>
                 </div>
             </a>
-
-            <nav class="nav-links">
-                <a href="/frontend/index.html">回到首頁</a>
-                <a href="/frontend/buyer-center.html">買家中心</a>
-                <a href="/frontend/seller-center.html">賣家中心</a>
-                <a href="/frontend/seller.html">商戶工作台</a>
-                <a href="/frontend/admin.html">管理後台</a>
-            </nav>
-
-            <div class="nav-actions">
-                <button id="connectButton" class="button primary" type="button">連接錢包</button>
-            </div>
         </header>
 
         <main class="detail-layout">
@@ -219,9 +217,10 @@
     </div>
     <div id="toastStack" class="toast-stack"></div>
 
-    <script src="/frontend/config.js"></script>
+    <script src="/frontend/config.js?v=20260417-product-console"></script>
     <script src="/node_modules/ethers/dist/ethers.umd.min.js"></script>
-    <script src="/frontend/shared.js"></script>
-    <script src="/frontend/product.js"></script>
+    <script src="/frontend/shared.js?v=20260417-product-console"></script>
+    <script src="/frontend/product.js?v=20260417-product-console"></script>
+    <script src="/frontend/motion.js?v=20260417-token-swarm"></script>
 </body>
 </html>

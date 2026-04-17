@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="260" height="260" viewBox="0 0 260 260" fill="none">
+  <g filter="url(#shadow)">
+    <rect x="26" y="26" width="180" height="180" rx="34" fill="#2AAFA2"/>
+    <rect x="38" y="38" width="180" height="180" rx="34" fill="#35C3B3"/>
+  </g>
+  <g fill="#F7FFFD">
+    <rect x="82" y="78" width="96" height="16"/>
+    <rect x="122" y="94" width="16" height="68"/>
+    <rect x="74" y="114" width="112" height="12"/>
+    <rect x="62" y="126" width="16" height="12"/>
+    <rect x="182" y="126" width="16" height="12"/>
+    <rect x="90" y="138" width="80" height="10"/>
+    <rect x="74" y="148" width="16" height="12"/>
+    <rect x="170" y="148" width="16" height="12"/>
+    <rect x="98" y="160" width="64" height="10"/>
+  </g>
+  <defs>
+    <filter id="shadow" x="0" y="0" width="260" height="260" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="10" dy="10" stdDeviation="8" flood-color="#000000" flood-opacity="0.16"/>
+    </filter>
+  </defs>
+</svg>

@@ -12,6 +12,7 @@
   const PAYMENT_TOKEN_ABI = [
     "function symbol() external view returns (string)",
     "function decimals() external view returns (uint8)",
+    "function balanceOf(address owner) external view returns (uint256)",
     "function allowance(address owner, address spender) external view returns (uint256)",
     "function approve(address spender, uint256 amount) external returns (bool)"
   ];
@@ -84,8 +85,12 @@
   }
   function buildPlaceholderImage(product){
     if(product?.meta?.imageUrl) return product.meta.imageUrl;
-    const label = encodeURIComponent(product?.name || "商品");
-    return `data:image/svg+xml;charset=UTF-8,<svg xmlns="http://www.w3.org/2000/svg" width="800" height="560"><defs><linearGradient id="g" x1="0" x2="1"><stop stop-color="%235578a8"/><stop offset="1" stop-color="%236e8fb8"/></linearGradient></defs><rect width="100%" height="100%" fill="url(%23g)"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="white" font-size="42" font-family="sans-serif">${label}</text></svg>`;
+    const label = String(product?.name || "商品")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="560" viewBox="0 0 800 560"><defs><linearGradient id="g" x1="0" x2="1"><stop stop-color="#5578a8"/><stop offset="1" stop-color="#6e8fb8"/></linearGradient></defs><rect width="100%" height="100%" fill="url(#g)"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="white" font-size="42" font-family="sans-serif">${label}</text></svg>`;
+    return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
   }
   async function apiRequest(path, options={}){
     const headers = new Headers(options.headers || {});
@@ -168,7 +173,7 @@
   }
   async function ensurePaymentToken(options={}){
     const requireSigner=!!options.requireSigner; const contract=await ensureContract({requireSigner}); const runner=requireSigner?await ensureSigner():await ensureProvider(); const addr=await contract.payment_token();
-    if(!runtime.paymentTokenContract || runtime.paymentTokenAddress?.toLowerCase() !== addr.toLowerCase()){ runtime.paymentTokenContract = new window.ethers.Contract(addr, PAYMENT_TOKEN_ABI, runner); runtime.paymentTokenAddress=addr; runtime.paymentTokenMeta=null; }
+    if(!runtime.paymentTokenContract || runtime.paymentTokenAddress?.toLowerCase() !== addr.toLowerCase() || typeof runtime.paymentTokenContract.balanceOf !== "function"){ runtime.paymentTokenContract = new window.ethers.Contract(addr, PAYMENT_TOKEN_ABI, runner); runtime.paymentTokenAddress=addr; runtime.paymentTokenMeta=null; }
     else if(requireSigner && runtime.paymentTokenContract.runner !== runtime.signer){ runtime.paymentTokenContract = runtime.paymentTokenContract.connect(runtime.signer); }
     if(!runtime.paymentTokenMeta){
       const fallback=fallbackToken();
@@ -309,11 +314,63 @@
   async function getBuyerDashboard(force=false){ const key=ck("buyerDashboard"); if(!force){ const hit=getCached(key); if(hit) return hit; } const result=await dedupe(key, ()=>apiRequest("/api/dashboard/buyer",{method:"GET"})); return setCached(key,result); }
   async function getSellerDashboard(force=false){ const key=ck("sellerDashboard"); if(!force){ const hit=getCached(key); if(hit) return hit; } const result=await dedupe(key, ()=>apiRequest("/api/dashboard/seller",{method:"GET"})); return setCached(key,result); }
   async function getStoreSnapshot(force=false){ const [wallet,session,products,orders,reviews,payouts]=await Promise.all([getWalletState(force),getSession(force),getProducts(force),getOrders(force),getReviews(force),getPayouts(force)]); return {wallet,session,products,orders,reviews,payouts}; }
+  async function initWalletState(force=false){
+    const [wallet, session] = await Promise.all([
+      getWalletState(force),
+      getSession(force).catch(()=>({}))
+    ]);
+    return {
+      account: wallet.account || null,
+      chainId: wallet.chainId || null,
+      authenticated: !!session?.authenticated,
+      session
+    };
+  }
+  async function fetchProducts(force=false){ return getProducts(force); }
+  async function fetchReviews(force=false){ return getReviews(force); }
+  async function fetchOrders(force=false){ return getOrders(force); }
+  async function fetchPayouts(force=false){ return getPayouts(force); }
   async function requestSellerAccess(address){ await apiRequest("/api/sellers/request",{method:"POST", body: JSON.stringify({address})}); clearDataCache(); }
   async function approveSellerAccess(address,approved=true){ await apiRequest("/api/sellers/approve",{method:"POST", body: JSON.stringify({address, approved})}); clearDataCache(); }
   async function uploadProductImage(file){ const fd=new FormData(); fd.append("image", file); return apiRequest("/api/uploads/product-image",{method:"POST", body:fd}); }
   async function createProduct(input){ const result=await apiRequest("/api/products",{method:"POST", body: JSON.stringify({ seller: input.seller || runtime.currentAccount || "", name: String(input.name || "").trim(), priceWei: String(input.priceWei?.toString?.() || input.priceWei || "0"), meta: normalizeMeta(input.meta) })}); clearDataCache(); return result; }
   async function updateProduct(productId,input){ const payload={}; if("name" in input) payload.name=String(input.name || "").trim(); if("priceWei" in input) payload.priceWei=String(input.priceWei?.toString?.() || input.priceWei || "0"); if("meta" in input) payload.meta=normalizeMeta(input.meta); if("isActive" in input) payload.isActive=!!input.isActive; const result=await apiRequest(`/api/products/${productId}`,{method:"PATCH", body:JSON.stringify(payload)}); clearDataCache(); return result; }
+  async function deleteProduct(productId){
+    const id = Number(productId);
+    const verifyDeleted = async () => {
+      const rows = await apiRequest("/api/products",{method:"GET"});
+      const exists = Array.isArray(rows) && rows.some((item)=>Number(item?.productId) === id);
+      clearDataCache();
+      if(exists){
+        throw new Error("刪除請求尚未生效，請先重啟後端後再試一次。");
+      }
+      return { ok: true, productId: id };
+    };
+    try{
+      const result=await apiRequest(`/api/products/${id}/delete`,{method:"POST", body: JSON.stringify({})});
+      clearDataCache();
+      return result;
+    }catch(primaryError){
+      const primaryMessage = String(primaryError?.message || "");
+      if(!primaryMessage.includes("Method Not Allowed") && primaryMessage !== "Not Found" && !primaryMessage.includes("Product not found")){
+        throw primaryError;
+      }
+      try{
+        const result=await apiRequest(`/api/products/${id}`,{method:"DELETE"});
+        clearDataCache();
+        return result;
+      }catch(secondaryError){
+        const secondaryMessage = String(secondaryError?.message || "");
+        if(secondaryMessage.includes("Product not found")){
+          return verifyDeleted();
+        }
+        if(secondaryMessage.includes("Method Not Allowed") || secondaryMessage === "Not Found"){
+          return verifyDeleted();
+        }
+        throw secondaryError;
+      }
+    }
+  }
   async function setProductActive(productId, isActive){ return updateProduct(productId,{isActive}); }
   async function saveOrderMeta(orderId,meta){ const result=await apiRequest("/api/orders",{method:"POST", body: JSON.stringify({orderId:Number(orderId)||0, buyer: meta.buyer || runtime.currentAccount || "", productId:Number(meta.productId)||0, productName: meta.productName || "", productSeller: meta.productSeller || "", priceWei: String(meta.priceWei?.toString?.() || meta.priceWei || "0"), flowStage: Number(meta.flowStage || 1)})}); clearDataCache(); return result; }
   async function saveOrderFlowStage(orderId,stage){ const result=await apiRequest(`/api/orders/${orderId}/flow`,{method:"PATCH", body: JSON.stringify({flowStage: Math.max(1, Math.min(4, Number(stage)||1))})}); clearDataCache(); return result; }
@@ -432,9 +489,10 @@
     getConfiguredContractAddress, getWalletState, connectWallet, switchToExpectedNetwork, getSession,
     ensureContract, ensurePaymentToken, ensurePaymentTokenApproval,
     getProducts, getOrders, getReviews, getPayouts, getStoreSnapshot,
+    initWalletState, fetchProducts, fetchReviews, fetchOrders, fetchPayouts,
     getAdminDashboard, getBuyerDashboard, getSellerDashboard, getSellersStore, getSellerProfile,
     requestSellerAccess, approveSellerAccess, uploadProductImage,
-    createProduct, updateProduct, setProductActive, saveOrderMeta, saveOrderFlowStage, saveReview, savePayout,
+    createProduct, updateProduct, deleteProduct, setProductActive, saveOrderMeta, saveOrderFlowStage, saveReview, savePayout,
     parsePaymentAmount, formatAddress, formatEth, normalizeMeta, buildPlaceholderImage, safeBigInt,
     getOrderStageMeta, isOrderRestricted, getOrderRestrictionReason,
     getCart, saveCart, getFavoriteProductIds, isFavoriteProduct, toggleFavoriteProduct, getRecentlyViewedProductIds, pushRecentlyViewedProduct

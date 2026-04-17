@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="260" height="260" viewBox="0 0 260 260" fill="none">
+  <g filter="url(#shadow)">
+    <rect x="26" y="26" width="180" height="180" rx="34" fill="#FFB347"/>
+    <rect x="38" y="38" width="180" height="180" rx="34" fill="#FFA11F"/>
+  </g>
+  <g fill="#FFF9F0">
+    <rect x="110" y="58" width="14" height="144"/>
+    <rect x="140" y="58" width="14" height="144"/>
+
+    <rect x="84" y="82" width="64" height="14"/>
+    <rect x="84" y="112" width="64" height="14"/>
+    <rect x="84" y="144" width="64" height="14"/>
+
+    <rect x="70" y="96" width="14" height="16"/>
+    <rect x="70" y="128" width="14" height="16"/>
+    <rect x="148" y="82" width="16" height="14"/>
+    <rect x="148" y="112" width="16" height="14"/>
+    <rect x="148" y="144" width="16" height="14"/>
+
+    <rect x="164" y="96" width="14" height="16"/>
+    <rect x="164" y="128" width="14" height="16"/>
+    <rect x="178" y="82" width="14" height="30"/>
+    <rect x="178" y="128" width="14" height="30"/>
+
+    <rect x="98" y="48" width="14" height="24"/>
+    <rect x="152" y="48" width="14" height="24"/>
+    <rect x="98" y="188" width="14" height="24"/>
+    <rect x="152" y="188" width="14" height="24"/>
+  </g>
+  <defs>
+    <filter id="shadow" x="0" y="0" width="260" height="260" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="10" dy="10" stdDeviation="8" flood-color="#000000" flood-opacity="0.16"/>
+    </filter>
+  </defs>
+</svg>

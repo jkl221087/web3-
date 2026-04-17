@@ -10,31 +10,34 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap"
         rel="stylesheet" />
-    <link rel="stylesheet" href="/frontend/styles.css?v=20260410b" />
+    <link rel="stylesheet" href="/frontend/styles.css?v=20260417-store-world-5" />
 </head>
 
-<body class="fashion-body store-body">
+<body class="fashion-body store-body console-body">
     <div class="bg-shape bg-shape-a"></div>
     <div class="bg-shape bg-shape-b"></div>
 
-    <header class="floating-nav">
-        <a class="floating-brand" href="/frontend/entry.html">EF</a>
-        <nav class="floating-nav-links">
-            <a href="/frontend/entry.html">入口頁</a>
-            <a href="/frontend/buyer-center.html">買家中心</a>
-            <a href="/frontend/seller-center.html">賣家中心</a>
-            <a href="/frontend/seller.html">商戶工作台</a>
-            <a href="/frontend/admin.html">管理後台</a>
-        </nav>
-    </header>
+    <div class="bottom-nav-dock">
+        <header class="floating-nav">
+            <a class="floating-brand" href="/frontend/entry.html">EF</a>
+            <nav class="floating-nav-links">
+                <a href="/frontend/buyer-center.html">買家中心</a>
+                <a href="/frontend/seller-center.html">賣家中心</a>
+                <a href="/frontend/seller.html">商戶工作台</a>
+                <a href="/frontend/admin.html">管理後台</a>
+            </nav>
+        </header>
+    </div>
 
-    <button id="cartToggleButton" class="cart-toggle cart-float" type="button" aria-label="打開購物車">
-        <span class="cart-float-icon">Bag</span>
-        <span id="cartCount" class="cart-badge">0</span>
-    </button>
-    <button id="ordersToggleButton" class="button ghost floating-mini-toggle" type="button" aria-label="打開訂單與物流中心">
-        Orders
-    </button>
+    <div id="storeFloatingStack" class="store-floating-stack">
+        <button id="ordersToggleButton" class="store-fab store-fab-orders" type="button" aria-label="打開訂單與物流中心">
+            Orders
+        </button>
+        <button id="cartToggleButton" class="store-fab store-fab-cart" type="button" aria-label="打開購物車">
+            <span class="store-fab-label">Bag</span>
+            <span id="cartCount" class="store-fab-badge">0</span>
+        </button>
+    </div>
 
     <div class="page-shell">
         <main class="storefront-main">
@@ -47,6 +50,25 @@
                         <div class="hero-cta-row">
                             <a href="#collections" class="button primary">立即選購</a>
                             <a href="#news" class="button ghost">查看新品公告</a>
+                        </div>
+                    </div>
+
+                    <div class="hero-editorial-col" aria-hidden="true">
+                        <div class="hero-editorial-main">
+                            <img src="/frontend/assets/hero-fashion-store.svg" alt="Fashion editorial collage" />
+                            <span class="hero-editorial-chip">Spring Drop 2026</span>
+                        </div>
+                        <div class="hero-editorial-stack">
+                            <article class="hero-editorial-note">
+                                <p class="eyebrow">CITY LAYERS</p>
+                                <strong>輕量上衣 / 層次外套 / 都市穿搭</strong>
+                                <span>為 chill 的日常穿搭保留一點鏈上未來感。</span>
+                            </article>
+                            <article class="hero-editorial-note accent">
+                                <p class="eyebrow">CHAIN READY</p>
+                                <strong>USDT Escrow / Review / Seller Flow</strong>
+                                <span>把時裝展示和安全結帳放進同一個品牌宇宙。</span>
+                            </article>
                         </div>
                     </div>
                 </div>
@@ -69,18 +91,7 @@
                 </div>
             </section>
 
-            
-            <section class="panel-card gateway-note-card">
-                <div class="section-head compact-head">
-                    <div>
-                        <p class="eyebrow">Gateway Connected</p>
-                        <h2>入口頁已接管錢包與鏈上狀態</h2>
-                    </div>
-                </div>
-                <p class="section-note">這裡現在只保留商品瀏覽與商店內容。錢包連線、Session 驗證、鏈切換與 Escrow 狀態已移到 <a class="inline-entry-link" href="/frontend/entry.html">entry 入口頁</a>。</p>
-            </section>
-
-            <section id="news" class="news-section">
+            <section id="news" class="news-section editorial-section editorial-section-left">
                 <div class="section-head">
                     <div>
                         <p class="eyebrow">Store Bulletin</p>
@@ -88,26 +99,39 @@
                     </div>
                 </div>
 
-                <div class="news-grid">
-                    <article class="news-card featured">
-                        <span class="news-pill">NEW DROP</span>
-                        <strong>2026 春夏系列上線</strong>
-                        <p>主打透氣上衣、輕量外套與適合城市移動的層次穿搭，已開放加入購物車與鏈上結帳。</p>
-                    </article>
-                    <article class="news-card">
-                        <span class="news-pill">PROMO</span>
-                        <strong>本週精選款式</strong>
-                        <p>以女裝針織、男裝外套與孩童四季單品作為店內輪播主角，首頁底部會自動滑動展示。</p>
-                    </article>
-                    <article class="news-card">
-                        <span class="news-pill">ESCROW</span>
-                        <strong>物流節點已納入流程</strong>
-                        <p>賣家接單後可依序更新出貨、到貨、提醒取貨與待取貨狀態，買家確認取貨後賣家才可提領。</p>
-                    </article>
+                <div class="editorial-section-layout">
+                    <aside class="editorial-aside editorial-aside-news">
+                        <p class="eyebrow">Moodboard</p>
+                        <h3>把時裝櫥窗、鏈上結帳與 chill 生活感放在一起。</h3>
+                        <p>我們想讓這個商店不是一般 dashboard，而是像一個有光、有節奏、有衣服故事的 digital boutique。</p>
+                        <div class="editorial-mini-stack">
+                            <span class="editorial-mini-pill">Spring Layer</span>
+                            <span class="editorial-mini-pill">Soft Utility</span>
+                            <span class="editorial-mini-pill">Escrow Ready</span>
+                        </div>
+                    </aside>
+
+                    <div class="news-grid">
+                        <article class="news-card featured">
+                            <span class="news-pill">NEW DROP</span>
+                            <strong>2026 春夏系列上線</strong>
+                            <p>主打透氣上衣、輕量外套與適合城市移動的層次穿搭，已開放加入購物車與鏈上結帳。</p>
+                        </article>
+                        <article class="news-card">
+                            <span class="news-pill">PROMO</span>
+                            <strong>本週精選款式</strong>
+                            <p>以女裝針織、男裝外套與孩童四季單品作為店內輪播主角，首頁底部會自動滑動展示。</p>
+                        </article>
+                        <article class="news-card">
+                            <span class="news-pill">ESCROW</span>
+                            <strong>物流節點已納入流程</strong>
+                            <p>賣家接單後可依序更新出貨、到貨、提醒取貨與待取貨狀態，買家確認取貨後賣家才可提領。</p>
+                        </article>
+                    </div>
                 </div>
             </section>
 
-            <section class="panel-card recommendation-stage">
+            <section class="panel-card recommendation-stage editorial-section editorial-section-right">
                 <div class="section-head">
                     <div>
                         <p class="eyebrow">Store Picks</p>
@@ -115,29 +139,42 @@
                     </div>
                 </div>
 
-                <div class="member-dual-grid">
-                    <article class="panel-card recommendation-card">
-                        <div class="section-head compact-head">
-                            <div>
-                                <p class="eyebrow">Popular</p>
-                                <h2>熱門商品</h2>
+                <div class="editorial-section-layout editorial-section-layout-reverse">
+                    <div class="member-dual-grid">
+                        <article class="panel-card recommendation-card">
+                            <div class="section-head compact-head">
+                                <div>
+                                    <p class="eyebrow">Popular</p>
+                                    <h2>熱門商品</h2>
+                                </div>
                             </div>
-                        </div>
-                        <div id="popularProductsGrid" class="compact-product-grid"></div>
-                    </article>
+                            <div id="popularProductsGrid" class="compact-product-grid"></div>
+                        </article>
 
-                    <article class="panel-card recommendation-card">
-                        <div class="section-head compact-head">
-                            <div>
-                                <p class="eyebrow">Top Rated</p>
-                                <h2>高評分商品</h2>
+                        <article class="panel-card recommendation-card">
+                            <div class="section-head compact-head">
+                                <div>
+                                    <p class="eyebrow">Top Rated</p>
+                                    <h2>高評分商品</h2>
+                                </div>
                             </div>
+                            <div id="topRatedProductsGrid" class="compact-product-grid"></div>
+                        </article>
+                    </div>
+
+                    <aside class="editorial-aside editorial-aside-picks">
+                        <p class="eyebrow">Selection Note</p>
+                        <h3>像選刊一樣挑商品，而不是只看一列資料。</h3>
+                        <p>把熱門單品和高評分商品放在一起，是想做出一種慢慢逛、慢慢選的感覺，讓人會想待在這裡久一點。</p>
+                        <div class="editorial-mini-stack">
+                            <span class="editorial-mini-pill">Most Loved</span>
+                            <span class="editorial-mini-pill">Top Rated</span>
+                            <span class="editorial-mini-pill">Daily Chill</span>
                         </div>
-                        <div id="topRatedProductsGrid" class="compact-product-grid"></div>
-                    </article>
+                    </aside>
                 </div>
             </section>
-</main>
+        </main>
     </div>
 
     <aside id="cartDrawer" class="cart-drawer">
@@ -200,10 +237,11 @@
     <div id="drawerBackdrop" class="drawer-backdrop"></div>
     <div id="toastStack" class="toast-stack"></div>
 
-    <script src="/frontend/config.js?v=20260415-bootstrap"></script>
+    <script src="/frontend/config.js?v=20260417-store-world-5"></script>
     <script src="/node_modules/ethers/dist/ethers.umd.min.js"></script>
-    <script src="/frontend/shared.js?v=20260415-bootstrap"></script>
-    <script src="/frontend/store.js?v=20260416-entry"></script>
+    <script src="/frontend/shared.js?v=20260417-store-world-5"></script>
+    <script src="/frontend/store.js?v=20260417-store-world-5"></script>
+    <script src="/frontend/motion.js?v=20260417-store-world-5"></script>
 </body>
 
 </html>

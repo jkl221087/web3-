@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -83,6 +84,24 @@ class ApiController {
                                 @RequestBody UpdateProductRequest payload) {
         String actor = storeService.requireActor(request, actorHeader, authService);
         return storeService.updateProduct(actor, id, payload);
+    }
+
+    @DeleteMapping("/products/{id}")
+    ResponseEntity<Map<String, Object>> deleteProduct(HttpServletRequest request,
+                                                      @RequestHeader(value = "x-actor-address", required = false) String actorHeader,
+                                                      @PathVariable("id") long id) {
+        String actor = storeService.requireActor(request, actorHeader, authService);
+        storeService.deleteProduct(actor, id);
+        return ResponseEntity.ok(Map.of("ok", true, "productId", id));
+    }
+
+    @PostMapping("/products/{id}/delete")
+    ResponseEntity<Map<String, Object>> deleteProductFallback(HttpServletRequest request,
+                                                              @RequestHeader(value = "x-actor-address", required = false) String actorHeader,
+                                                              @PathVariable("id") long id) {
+        String actor = storeService.requireActor(request, actorHeader, authService);
+        storeService.deleteProduct(actor, id);
+        return ResponseEntity.ok(Map.of("ok", true, "productId", id));
     }
 
     @GetMapping("/sellers")
