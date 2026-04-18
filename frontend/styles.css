@@ -4299,3 +4299,372 @@ body {
         height: 70px;
     }
 }
+
+/* ===== Gray glass theme lock ===== */
+:root {
+    --glass-bg:
+        radial-gradient(circle at 10% 14%, rgba(118, 168, 224, 0.26), transparent 20%),
+        radial-gradient(circle at 88% 14%, rgba(214, 170, 141, 0.2), transparent 18%),
+        radial-gradient(circle at 76% 76%, rgba(114, 170, 154, 0.16), transparent 20%),
+        radial-gradient(circle at 26% 84%, rgba(176, 146, 188, 0.12), transparent 18%),
+        linear-gradient(180deg, #6a6a6a 0%, #5c5c5c 52%, #565656 100%);
+    --glass-surface:
+        linear-gradient(180deg, rgba(21, 24, 29, 0.54), rgba(21, 24, 29, 0.34)),
+        radial-gradient(circle at 84% 84%, rgba(117, 211, 186, 0.12), transparent 34%),
+        radial-gradient(circle at 18% 18%, rgba(255, 192, 148, 0.1), transparent 28%);
+    --glass-surface-strong:
+        linear-gradient(180deg, rgba(24, 28, 33, 0.7), rgba(24, 28, 33, 0.46)),
+        radial-gradient(circle at 84% 84%, rgba(117, 211, 186, 0.14), transparent 34%),
+        radial-gradient(circle at 18% 18%, rgba(255, 192, 148, 0.12), transparent 28%);
+    --glass-flat: rgba(255, 255, 255, 0.06);
+    --glass-line: rgba(255, 255, 255, 0.18);
+    --glass-line-strong: rgba(255, 255, 255, 0.24);
+    --glass-text: rgba(255, 255, 255, 0.96);
+    --glass-muted: rgba(255, 255, 255, 0.72);
+    --glass-shadow: 0 18px 40px rgba(0, 0, 0, 0.16);
+}
+
+.fashion-body,
+.console-body,
+.console-body.store-body,
+.console-body.seller-body,
+.console-body.detail-body {
+    background: var(--glass-bg) !important;
+    color: var(--glass-text) !important;
+}
+
+.fashion-body::before,
+.console-body::before {
+    background:
+        linear-gradient(rgba(255, 255, 255, 0.16) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.16) 1px, transparent 1px) !important;
+    background-size: 38px 38px !important;
+    opacity: 1 !important;
+    mask-image: none !important;
+}
+
+.fashion-body::after,
+.console-body::after {
+    opacity: 0.92 !important;
+}
+
+.console-body,
+.console-body p,
+.console-body span,
+.console-body strong,
+.console-body small,
+.console-body a,
+.console-body h1,
+.console-body h2,
+.console-body h3,
+.console-body h4,
+.console-body label,
+.console-body li,
+.console-body button,
+.console-body input,
+.console-body select,
+.console-body textarea,
+.console-body *,
+.store-body,
+.store-body p,
+.store-body span,
+.store-body strong,
+.store-body small,
+.store-body a,
+.store-body h1,
+.store-body h2,
+.store-body h3,
+.store-body h4,
+.store-body label,
+.store-body li,
+.store-body button,
+.store-body input,
+.store-body select,
+.store-body textarea,
+.store-body * {
+    color: var(--glass-text) !important;
+}
+
+.console-body input::placeholder,
+.console-body textarea::placeholder,
+.store-body input::placeholder,
+.store-body textarea::placeholder {
+    color: var(--glass-muted) !important;
+    opacity: 1 !important;
+}
+
+.top-nav,
+.floating-nav,
+.hero-floating-card,
+.news-card,
+.catalog-stage,
+.orders-section,
+.panel-card,
+.cart-drawer,
+.product-card,
+.order-card,
+.inventory-card,
+.cart-card,
+.detail-gallery,
+.detail-info,
+.seller-summary,
+.access-card,
+.admin-panel,
+.request-card,
+.member-sidebar,
+.member-sidebar-card,
+.member-focus-card,
+.metric-card,
+.compact-product-card,
+.hero-showcase-product,
+.hero-showcase {
+    background: var(--glass-surface) !important;
+    border: 1px solid var(--glass-line-strong) !important;
+    box-shadow: var(--glass-shadow) !important;
+    backdrop-filter: blur(16px) !important;
+}
+
+.top-nav,
+.floating-nav,
+.cart-drawer,
+.orders-popover {
+    background: var(--glass-surface-strong) !important;
+}
+
+.button.ghost,
+.icon-button,
+.category-chip,
+.member-nav-link,
+.floating-nav-links a,
+.nav-links a,
+.tag-pill,
+.category-chip,
+.summary-pill,
+.status-badge,
+.editorial-mini-pill,
+.hero-editorial-chip,
+.news-pill {
+    background: var(--glass-flat) !important;
+    border: 1px solid var(--glass-line) !important;
+    color: var(--glass-text) !important;
+}
+
+.button.primary,
+.floating-nav-links a.current,
+.member-nav-link.active,
+.floating-nav-links a:hover,
+.floating-nav-links a:active,
+.floating-nav-links a:focus-visible,
+.member-nav-link:hover,
+.button:hover,
+.cart-toggle,
+.store-fab-badge,
+.cart-badge {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.06)),
+        radial-gradient(circle at 84% 84%, rgba(117, 211, 186, 0.16), transparent 34%),
+        radial-gradient(circle at 18% 18%, rgba(255, 192, 148, 0.12), transparent 28%) !important;
+    border: 1px solid var(--glass-line-strong) !important;
+    color: var(--glass-text) !important;
+    box-shadow: none !important;
+}
+
+.floating-brand,
+.brand-mark {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08)) !important;
+    border: 1px solid var(--glass-line-strong) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 10px 24px rgba(0, 0, 0, 0.12) !important;
+    color: var(--glass-text) !important;
+}
+
+.floating-nav-links a {
+    background: transparent !important;
+    border: 1px solid transparent !important;
+    box-shadow: none !important;
+}
+
+.brand small,
+.hero-copy p,
+.news-card p,
+.detail-description,
+.inventory-meta p,
+.product-card p,
+.order-card p,
+.access-card p,
+.request-card p,
+.member-sidebar-head p:last-child,
+.member-focus-card p,
+.metric-card p,
+.summary-line span,
+.eyebrow,
+.popover-note,
+.entry-footer-role {
+    color: var(--glass-muted) !important;
+}
+
+.search-input,
+.order-stage-select,
+input,
+select,
+textarea {
+    background: rgba(255, 255, 255, 0.06) !important;
+    border: 1px solid var(--glass-line) !important;
+    color: var(--glass-text) !important;
+}
+
+/* Homepage hero cleanup */
+.console-body.store-body .hero-editorial-stack,
+.console-body.store-body .hero-editorial-main,
+.console-body.store-body .hero-editorial-col,
+.console-body.store-body .hero-product-split::after {
+    display: none !important;
+    content: none !important;
+}
+
+.console-body.store-body .hero-product-split {
+    grid-template-columns: 1fr !important;
+    min-height: auto !important;
+}
+
+.console-body.store-body .news-section,
+.console-body.store-body .editorial-aside-news,
+.console-body.store-body .news-card,
+.console-body.store-body .news-card.featured,
+.console-body.store-body .news-card:nth-child(2),
+.console-body.store-body .news-card:nth-child(3) {
+    background: var(--glass-surface) !important;
+    border: 1px solid var(--glass-line-strong) !important;
+    box-shadow: var(--glass-shadow) !important;
+    backdrop-filter: blur(16px) !important;
+}
+
+.console-body.store-body .news-pill,
+.console-body.store-body .editorial-mini-pill {
+    background: var(--glass-flat) !important;
+    border: 1px solid var(--glass-line) !important;
+    color: var(--glass-text) !important;
+}
+
+.console-body.store-body .news-section .section-head h2,
+.console-body.store-body .editorial-aside-news h3,
+.console-body.store-body .news-card strong {
+    color: var(--glass-text) !important;
+}
+
+.console-body.store-body .editorial-aside-news p,
+.console-body.store-body .news-card p {
+    color: var(--glass-muted) !important;
+}
+
+/* Store bulletin gray glass lock */
+.console-body.store-body .news-section {
+    background: var(--glass-surface-strong) !important;
+    border: 1px solid var(--glass-line-strong) !important;
+    box-shadow: var(--glass-shadow) !important;
+    backdrop-filter: blur(16px) !important;
+}
+
+.console-body.store-body .editorial-aside-news,
+.console-body.store-body .news-card,
+.console-body.store-body .news-card.featured,
+.console-body.store-body .news-card:nth-child(2),
+.console-body.store-body .news-card:nth-child(3) {
+    background:
+        linear-gradient(180deg, rgba(20, 24, 29, 0.76), rgba(20, 24, 29, 0.56)) !important;
+    border: 1px solid rgba(255, 255, 255, 0.16) !important;
+    box-shadow: none !important;
+}
+
+.console-body.store-body .news-card::after {
+    background: radial-gradient(circle, rgba(120, 183, 255, 0.12), transparent 66%) !important;
+}
+
+/* Remove top intro heroes on member consoles */
+.console-body .buyer-center-hero,
+.console-body .seller-center-hero {
+    display: none !important;
+}
+
+/* Merchant workbench gray glass lock */
+.console-body.seller-body .checklist-row,
+.console-body.seller-body .governance-chip,
+.console-body.seller-body .alert-row,
+.console-body.seller-body .request-card,
+.console-body.seller-body .readiness-note {
+    background:
+        linear-gradient(180deg, rgba(20, 24, 29, 0.76), rgba(20, 24, 29, 0.56)) !important;
+    border: 1px solid rgba(255, 255, 255, 0.16) !important;
+    box-shadow: none !important;
+}
+
+.console-body.seller-body .checklist-index {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border: 1px solid rgba(255, 255, 255, 0.14) !important;
+    color: var(--glass-text) !important;
+}
+
+.console-body.seller-body .checklist-row.done .checklist-index {
+    background: rgba(90, 219, 163, 0.16) !important;
+    color: #81e0b9 !important;
+}
+
+.console-body.seller-body .status-badge.neutral,
+.console-body.seller-body .status-badge.success,
+.console-body.seller-body .status-badge.warn {
+    border: 1px solid rgba(255, 255, 255, 0.16) !important;
+    box-shadow: none !important;
+}
+
+.console-body.seller-body .status-badge.neutral {
+    background: rgba(255, 255, 255, 0.08) !important;
+    color: var(--glass-text) !important;
+}
+
+.console-body.seller-body .status-badge.success {
+    background: rgba(90, 219, 163, 0.16) !important;
+    color: #81e0b9 !important;
+}
+
+.console-body.seller-body .status-badge.warn {
+    background: rgba(255, 184, 86, 0.16) !important;
+    color: #ffd089 !important;
+}
+
+/* Store floating actions and order tabs gray glass lock */
+.console-body.store-body .store-fab {
+    background:
+        linear-gradient(180deg, rgba(20, 24, 29, 0.82), rgba(20, 24, 29, 0.64)) !important;
+    border: 1px solid rgba(255, 255, 255, 0.18) !important;
+    color: var(--glass-text) !important;
+    box-shadow: var(--glass-shadow) !important;
+    backdrop-filter: blur(16px) !important;
+}
+
+.console-body.store-body .store-fab-badge {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border: 1px solid rgba(255, 255, 255, 0.14) !important;
+    color: var(--glass-text) !important;
+}
+
+.console-body.store-body .segmented-tabs {
+    background:
+        linear-gradient(180deg, rgba(20, 24, 29, 0.82), rgba(20, 24, 29, 0.64)) !important;
+    border: 1px solid rgba(255, 255, 255, 0.18) !important;
+    box-shadow: none !important;
+}
+
+.console-body.store-body .segment-tab {
+    background: transparent !important;
+    color: var(--glass-muted) !important;
+    box-shadow: none !important;
+}
+
+.console-body.store-body .segment-tab.active,
+.console-body.store-body .segment-tab:hover,
+.console-body.store-body .segment-tab:focus-visible {
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.05)) !important;
+    border: 1px solid rgba(255, 255, 255, 0.16) !important;
+    color: var(--glass-text) !important;
+    box-shadow: none !important;
+}

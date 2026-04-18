@@ -10,7 +10,7 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap"
         rel="stylesheet" />
-    <link rel="stylesheet" href="/frontend/styles.css?v=20260417-store-world-5" />
+    <link rel="stylesheet" href="/frontend/styles.css?v=20260418-gray-glass-9" />
 </head>
 
 <body class="fashion-body store-body console-body">
@@ -74,23 +74,6 @@
                 </div>
             </section>
 
-            <section id="collections" class="catalog-stage">
-                <div class="section-head">
-                    <div>
-                        <p class="eyebrow">Slide Collection</p>
-                        <h2>本季所有商品</h2>
-                    </div>
-                    <div class="catalog-tools">
-                        <input id="searchInput" class="search-input" type="text" placeholder="搜尋商品名稱、分類、款式" />
-                    </div>
-                </div>
-
-                <div id="categoryFilters" class="category-filters"></div>
-                <div id="catalogViewport" class="catalog-viewport">
-                    <div id="catalogGrid" class="product-rail"></div>
-                </div>
-            </section>
-
             <section id="news" class="news-section editorial-section editorial-section-left">
                 <div class="section-head">
                     <div>
@@ -131,49 +114,23 @@
                 </div>
             </section>
 
-            <section class="panel-card recommendation-stage editorial-section editorial-section-right">
+            <section id="collections" class="catalog-stage">
                 <div class="section-head">
                     <div>
-                        <p class="eyebrow">Store Picks</p>
-                        <h2>熱門商品與高評分推薦</h2>
+                        <p class="eyebrow">Slide Collection</p>
+                        <h2>本季所有商品</h2>
+                    </div>
+                    <div class="catalog-tools">
+                        <input id="searchInput" class="search-input" type="text" placeholder="搜尋商品名稱、分類、款式" />
                     </div>
                 </div>
 
-                <div class="editorial-section-layout editorial-section-layout-reverse">
-                    <div class="member-dual-grid">
-                        <article class="panel-card recommendation-card">
-                            <div class="section-head compact-head">
-                                <div>
-                                    <p class="eyebrow">Popular</p>
-                                    <h2>熱門商品</h2>
-                                </div>
-                            </div>
-                            <div id="popularProductsGrid" class="compact-product-grid"></div>
-                        </article>
-
-                        <article class="panel-card recommendation-card">
-                            <div class="section-head compact-head">
-                                <div>
-                                    <p class="eyebrow">Top Rated</p>
-                                    <h2>高評分商品</h2>
-                                </div>
-                            </div>
-                            <div id="topRatedProductsGrid" class="compact-product-grid"></div>
-                        </article>
-                    </div>
-
-                    <aside class="editorial-aside editorial-aside-picks">
-                        <p class="eyebrow">Selection Note</p>
-                        <h3>像選刊一樣挑商品，而不是只看一列資料。</h3>
-                        <p>把熱門單品和高評分商品放在一起，是想做出一種慢慢逛、慢慢選的感覺，讓人會想待在這裡久一點。</p>
-                        <div class="editorial-mini-stack">
-                            <span class="editorial-mini-pill">Most Loved</span>
-                            <span class="editorial-mini-pill">Top Rated</span>
-                            <span class="editorial-mini-pill">Daily Chill</span>
-                        </div>
-                    </aside>
+                <div id="categoryFilters" class="category-filters"></div>
+                <div id="catalogViewport" class="catalog-viewport">
+                    <div id="catalogGrid" class="product-rail"></div>
                 </div>
             </section>
+
         </main>
     </div>
 
